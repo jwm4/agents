@@ -35,7 +35,8 @@ Every run ends in one of three outcomes, recorded by the `outcome` judge:
 finished cleanly, opened no PR, and left a message saying why), or `failed`
 (nothing usable). A decline is not a failure: whether stopping was right is
 judged on its own terms. A failure of the eval's own capture (the fixture
-record missing, an unreadable PR reference) is recorded as `failed` with
+record missing, a PR list GitHub would not return, an unreadable PR reference)
+is recorded as `failed` with
 `infrastructure: true`, whatever the agent's final message said, and leaves
 `output/infrastructure-failure.json`, which `run-functional.sh` counts as a
 case failure in its result line and exit code (the hook's own exit code is

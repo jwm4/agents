@@ -204,6 +204,10 @@ no_pr() {
   exit 0
 }
 [[ -f "$STATE_FILE" ]] || infra_fail "fixture-state.json missing; capture-fixture.sh did not run"
+# capture-fixture.sh records an empty PR list when GitHub would not return one;
+# that is not "no PR", it is a capture failure.
+pr_err=$(jq -r '.pull_requests_error // empty' "$STATE_FILE")
+[[ -z "$pr_err" ]] || infra_fail "PR list not captured: $pr_err"
 # Only the agent's own PR counts: fullsend's post-script pushes agent/<issue>-<slug>
 # branches. Anything else on the throwaway repo (Dependabot, for one) is ignored.
 pr=$(jq -c '[(.pull_requests // [])[] | select(((.state|ascii_upcase) == "OPEN" or (.state|ascii_upcase) == "MERGED") and ((.head // "") | startswith("agent/")))] | first // empty' "$STATE_FILE")

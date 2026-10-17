@@ -131,6 +131,13 @@ else
   fail "a fixture record jq cannot parse goes through the ERR trap to the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
 fi
 
+WS=$(new_case pr-list-failed '{"pull_requests":[],"pull_requests_error":"gh pr list failed for o/r after retries"}'); run_hook "$WS" "$TMP/path-all"
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "failed/true" && "$(marker "$WS")" == *"PR list not captured"* && ! -d "$WS/judge/repo-snapshot" ]]; then
+  pass "an empty PR list that capture-fixture.sh could not fetch is an infrastructure failure, not a decline"
+else
+  fail "an empty PR list that capture-fixture.sh could not fetch is an infrastructure failure (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
+fi
+
 WS=$(new_case bad-head '{"pull_requests":[{"number":7,"state":"OPEN","head":"agent/7 x;"}]}'); run_hook "$WS" "$TMP/path-all"
 if [[ $RC -ne 0 && "$(outcome "$WS")" == "failed/true" && "$(marker "$WS")" == *"unexpected head ref"* ]] && valid_json "$WS/output/infrastructure-failure.json"; then
   pass "a malformed head ref is an infrastructure failure with a valid marker"
