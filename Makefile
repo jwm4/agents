@@ -101,6 +101,7 @@ script-test:
 	$(call run-timed,bash eval/scripts/run-in-sandbox-test.sh)
 	$(call run-timed,bash eval/scripts/capture-pr-artifacts-test.sh)
 	$(call run-timed,bash eval/scripts/materialize-case-test.sh)
+	$(call run-timed,bash eval/scripts/run-review-agent-test.sh)
 	$(call run-timed,bash eval/scripts/aggregate-nightly-test.sh)
 	$(call run-timed,bash eval/run-functional-test.sh)
 	$(call run-timed,bash .github/scripts/check-rollup-result-test.sh)

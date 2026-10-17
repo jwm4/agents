@@ -180,24 +180,32 @@ on `google-vertex/gemini-3.8-flash`, and the other personas on their
 persona-file tiers (`sonnet`, `haiku`). The aliases there mean Sonnet 5.5
 and Opus 5.5.
 
-The eval sets only the parent's runtime and model (`pi`, `sonnet`), so the
-review is the same for every arm. Everything else comes from the fullsend
-config the eval runs under, the agents repo root `config.yaml`, and that is
-where the eval deviates from production:
+`run-review-agent.sh` sets the parent's runtime and model (`pi`, `sonnet`),
+so the review is the same for every arm, and by default
+(`EVAL_REVIEW_CONFIG=production`) it runs the review with the routing and
+aliases that entry gives it: at run time it reads the review agent's
+`subagents` block and the `models.aliases` from the repo's own
+`.fullsend/config.yaml`, applies them to a scratch copy of the fullsend
+directory, and drops the eval-only overlay's persona pins. Nothing is copied
+into the eval, so the eval follows production when production changes.
+`output/review-metrics.json` `review_config` records the mode, the aliases
+and the routing that were applied.
 
-- The repo root config pins `opus` to Sonnet 5.5 for the repo's evals (a
-  cost choice, 2026-10-03) and carries no `subagents` routing, so a run
-  that changes nothing gets a Claude-only review with the challenger on
-  Sonnet 5.5 and no GPT or Gemini personas.
-- On a developer machine whose Vertex project does not serve the 5.5
-  generation, the Claude aliases must be pinned one generation back
-  (`sonnet: claude-sonnet-5`, `opus: claude-opus-5`) or every persona call
-  fails; the production `subagents` block can be added to the eval's review
-  entry at the same time, with `OPENAI_API_KEY` in the environment for the
-  GPT personas. The local wrapper used for the recorded runs does both.
-  Reaching Claude 5.5 on EnMaaS from the pi runtime is not possible on the
-  current fullsend build (its gateway route sends a header EnMaaS rejects
-  for Claude, and a `models.json` redirect in pi's config is refused).
+The eval deviates from that in one place, and only when asked:
+`EVAL_CLAUDE_GENERATION=5` (or `EVAL_ALIAS_OPUS` / `EVAL_ALIAS_SONNET`) pins
+the Claude aliases to a generation the project serves. The recorded runs
+(2026-10-14/15 and later) ran `production` with `EVAL_CLAUDE_GENERATION=5`,
+because the Vertex project they ran on does not serve the 5.5 generation:
+parent on Sonnet 5, challenger on Opus 5, correctness and security on
+GPT-6.1 Sol, docs-currency and style-conventions on Gemini 3.8 Flash.
+`OPENAI_API_KEY` must be in the environment for the GPT personas; the script
+warns when it is not. Runs before 2026-10-14 used a Claude-only review (see
+below). `EVAL_REVIEW_CONFIG=eval` runs the review under the repo-root
+`config.yaml` as it stands (`opus` and `sonnet` both Sonnet 5.5, no persona
+routing), which is the cheap, Claude-only review the repo's CI evals get.
+Reaching Claude 5.5 on EnMaaS from the pi runtime was not possible on the
+fullsend build the recorded runs used; a later fullsend release fixes the
+gateway credential handling, and the alias pin goes away where 5.5 is served.
 
 `output/review-metrics.json` `per_model_usage` is the record of what ran: a
 persona whose model the project cannot serve shows there as requests with

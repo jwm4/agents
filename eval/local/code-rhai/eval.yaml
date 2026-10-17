@@ -35,10 +35,18 @@ execution:
     EVAL_RUNTIME: $EVAL_RUNTIME
     EVAL_MODEL: $EVAL_MODEL
     EVAL_EFFORT: $EVAL_EFFORT
-    # Review step overrides. Unset, the review runs as production configures
-    # it (pi runtime, parent on the `sonnet` alias, personas per the repo
-    # config), the same for every arm whatever the code agent ran on; see
-    # the README, "The review step". EVAL_SKIP_REVIEW=1 skips it entirely.
+    # Review step. Unset, EVAL_REVIEW_CONFIG=production: the review runs with
+    # the routing and aliases the agents repo's own .fullsend/config.yaml gives
+    # the review agent (pi runtime, parent on `sonnet`, personas per its
+    # `subagents` block), the same for every arm whatever the code agent ran
+    # on. EVAL_CLAUDE_GENERATION (or EVAL_ALIAS_OPUS/EVAL_ALIAS_SONNET) pins
+    # the Claude aliases for a project that does not serve production's
+    # generation; EVAL_REVIEW_CONFIG=eval runs under this repo-root config as
+    # is. See the README, "The review step". EVAL_SKIP_REVIEW=1 skips it.
+    EVAL_REVIEW_CONFIG: $EVAL_REVIEW_CONFIG
+    EVAL_CLAUDE_GENERATION: $EVAL_CLAUDE_GENERATION
+    EVAL_ALIAS_OPUS: $EVAL_ALIAS_OPUS
+    EVAL_ALIAS_SONNET: $EVAL_ALIAS_SONNET
     EVAL_REVIEW_RUNTIME: $EVAL_REVIEW_RUNTIME
     EVAL_REVIEW_MODEL: $EVAL_REVIEW_MODEL
     EVAL_REVIEW_EFFORT: $EVAL_REVIEW_EFFORT
