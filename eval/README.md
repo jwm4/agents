@@ -169,6 +169,7 @@ calls during both execution and scoring.
 |----------|-------------|
 | `GH_TOKEN` | GitHub PAT used by all eval scripts. See [required scopes](#required-token-scopes) below. Falls back to `gh auth token` if unset. In GitHub Actions, this is populated from the `EVAL_GH_TOKEN` repository secret. |
 | `EVAL_ORG` | GitHub org or user where ephemeral repos are created (e.g. `my-test-org`). |
+| `EVAL_REPO_VISIBILITY` | Visibility of the ephemeral repos `setup-fixture.sh` creates: `private` (default since 2026-09-25; Dependabot opened PRs on public throwaway repos) or `public`. The CI evals use the default. |
 
 ### Optional
 

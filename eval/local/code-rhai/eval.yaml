@@ -506,6 +506,8 @@ judges:
 # No thresholds: this is a local eval, never a CI gate. Every judge is
 # reported per case; a run exits non-zero only when the runner itself sees an
 # infrastructure failure (a case that never reached the agent, a capture hook
-# that could not establish what the agent did, a judge error).
+# that could not establish what the agent did). A judge that errors is
+# reported in the run output ("JUDGE ERROR") and excluded from that judge's
+# aggregate; with no thresholds it does not change the exit code.
 # Agent behaviour, including declines and failing repo tests, is the result,
 # not a defect of the run.

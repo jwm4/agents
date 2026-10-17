@@ -144,6 +144,13 @@ else
   fail "a failed create (rc=$RC status=$STATUS log: $(cat "$LOG"))"
 fi
 
+run 'echo ok' '30; echo pwned'
+if [[ $RC -eq 125 ]] && grep -q 'TMO must be a whole number of seconds' "$TMP/stderr-$((TESTS))"; then
+  pass "a non-numeric timeout is refused before any arithmetic"
+else
+  fail "a non-numeric timeout is refused before any arithmetic (rc=$RC, stderr: $(cat "$TMP/stderr-$((TESTS))"))"
+fi
+
 run 'echo ok' 30 STUB_PROVIDER_RC=1
 if [[ $RC -eq 125 && "$STATUS" == sandbox ]] && grep -q "provider 'package-registries' is not on the gateway" "$LOG"; then
   pass "a missing egress provider is a sandbox failure before anything is created"
