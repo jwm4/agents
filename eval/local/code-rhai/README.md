@@ -206,9 +206,13 @@ review evidence was a parent-only review, and their write-ups say so.
 
 ## Model pin, arms and comparing them
 
-`harness/code.yaml` says `model: opus`, an alias that Claude Code resolves to
-Opus 5 where the Vertex project serves it and to Opus 4.6 where it does not
-(the fleet projects, as of 2026-09-21). `models.skill` pins the baseline id;
+`harness/code.yaml` says `model: opus`. fullsend resolves that alias itself:
+from v0.48 it means `claude-opus-5-5`, which is what production runs, with
+`claude-opus-4-6` as the fallback where 5.5 is not served. `models.skill`
+pins the baseline id to `claude-opus-5`, the nearest model the Vertex project
+this eval runs on serves and the model the recorded Opus arm ran; it is a
+stand-in for production's Opus 5.5, not production itself, and a project that
+serves `claude-opus-5-5` should run that as an arm (`EVAL_MODEL=claude-opus-5-5`).
 `runner.command` carries the harness `{model}`/`{effort}` placeholders, which
 `run-fullsend.sh` turns into `fullsend run --model/--effort`, so the production
 harness file is untouched.

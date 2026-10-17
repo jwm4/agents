@@ -92,12 +92,17 @@ runner:
     - "{effort}"
 
 models:
-  # Baseline pin for the code agent. harness/code.yaml says `model: opus`, an
-  # alias that resolves to Opus 5 where the Vertex project serves it and falls
-  # back to Opus 4.6 where it does not (the fleet projects, as of 2026-09-21).
-  # Pin the id so every project runs the same baseline. A plain run uses this;
-  # EVAL_MODEL selects another arm for a run.
-  skill: claude-opus-4-6
+  # Baseline pin for the code agent. harness/code.yaml says `model: opus`;
+  # fullsend (>= v0.48) resolves that alias itself to claude-opus-5-5, which is
+  # what production runs, and falls back to claude-opus-4-6 only where 5.5 is
+  # not served. The Vertex project this eval runs on serves neither 5.5 nor
+  # the fallback as production would use it, so the baseline is pinned to
+  # claude-opus-5, the nearest model it does serve and the model the recorded
+  # Opus arm ran; it is a stand-in for production's Opus 5.5, not production
+  # itself. A project that serves claude-opus-5-5 should run it as an arm
+  # (EVAL_MODEL=claude-opus-5-5). A plain run uses this pin; EVAL_MODEL selects
+  # another arm for a run.
+  skill: claude-opus-5
   # Judge: Opus 5 on the Claude Code runner, the same judge for every arm so
   # the arms are scored identically, and above every model it judges. On the
   # ten artifacts of the first five-case set, Opus 5, Opus 5.5 and GPT-6 Sol
