@@ -39,7 +39,11 @@ record missing, an unreadable PR reference) is recorded as `failed` with
 `infrastructure: true`, whatever the agent's final message said, and leaves
 `output/infrastructure-failure.json`, which `run-functional.sh` counts as a
 case failure in its result line and exit code (the hook's own exit code is
-swallowed by the harness's continue-on-failure hook mode).
+swallowed by the harness's continue-on-failure hook mode). A capture failure
+after the outcome is known (the PR-head checkout or the test result could not
+be staged) keeps the outcome, marks it `artifacts_incomplete`, and leaves the
+same marker; the test and quality judges then skip or error rather than grade
+what is missing as the agent's doing.
 
 1. Deterministic first: the outcome; a PR exists; the repository's own test
    command still passes on the PR head; budgets are reported.

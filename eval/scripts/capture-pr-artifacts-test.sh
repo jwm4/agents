@@ -50,6 +50,13 @@ echo "stub ran: $2" > "$4"
 echo "${STUB_SANDBOX_STATUS:-command}" > "$4.status"
 exit "${STUB_SANDBOX_RC:-0}"
 STUB
+cat > "$TMP/bin/rsync" <<'STUB'
+#!/usr/bin/env bash
+# Real rsync unless STUB_RSYNC_FAIL=1: then the copy of judge artifacts fails,
+# the way a full disk or a vanished source would make it.
+[[ "${STUB_RSYNC_FAIL:-0}" == 1 ]] && { echo "stub rsync: failing on purpose" >&2; exit 23; }
+exec "$(command -v -p rsync || echo /opt/homebrew/bin/rsync)" "$@"
+STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/openshell"
 printf '#!/usr/bin/env bash\nprintf "%%s" "${STUB_FINAL_MSG:-}"\n' > "$TMP/bin/extract-final-message.py"
 chmod +x "$TMP/bin/"*
@@ -188,6 +195,24 @@ if [[ $RC -eq 0 && "$(outcome "$WS")" == "failed/false" && "$(field "$WS/output/
   pass "a PR on a non-agent branch does not count as the agent's PR"
 else
   fail "a PR on a non-agent branch does not count as the agent's PR (rc=$RC, outcome=$(outcome "$WS"), out: $OUT)"
+fi
+
+# --- failures after the outcome is written mark the artifacts incomplete ----
+WS=$(new_case pr-rsync-fails "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_RSYNC_FAIL=1
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" \
+      && "$(marker "$WS")" == *"aborted after the outcome"* && ! -f "$WS/output/regression.json" ]]; then
+  pass "a failure after the PR outcome keeps outcome pr, flags artifacts_incomplete and leaves the marker"
+else
+  fail "a failure after the PR outcome keeps outcome pr, flags artifacts_incomplete and leaves the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
+fi
+
+WS=$(new_case decline-rsync-fails '{"pull_requests":[]}'); mkdir -p "$WS/output/fs-cod-1"; touch "$WS/output/fs-cod-1/metrics.json"
+echo '{"exit_code": 0, "timed_out": false}' > "$WS/output/run-status.json"
+run_hook "$WS" "$TMP/path-all" STUB_RSYNC_FAIL=1 STUB_FINAL_MSG="I stopped because the endpoint already exists."
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "failed/true" && "$(marker "$WS")" == *"aborted at line"* && ! -d "$WS/judge/repo-snapshot" ]]; then
+  pass "a decline whose repo snapshot cannot be staged is an infrastructure failure, not a decline"
+else
+  fail "a decline whose repo snapshot cannot be staged is an infrastructure failure, not a decline (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
 fi
 
 # --- the PR path and the regression classification ------------------------

@@ -208,9 +208,11 @@ judges:
       must pass on the agent's PR head. Pass-to-pass, no reference needed.
     check: |
       import json
+      if outputs["files"].get("output/infrastructure-failure.json"):
+          raise RuntimeError("capture failed, not the agent: " + str(json.loads(outputs["files"]["output/infrastructure-failure.json"]).get("reason")))
       raw = outputs["files"].get("output/regression.json")
       if not raw:
-          return False, "regression.json not found — capture-pr-artifacts.sh did not run"
+          raise RuntimeError("regression.json not found: capture-pr-artifacts.sh did not reach the regression step")
       r = json.loads(raw)
       if r.get("not_applicable"):
           return True, f"Not applicable: {r.get('reason')}"
@@ -295,7 +297,9 @@ judges:
     model: claude-opus-5
     samples: 1
     score_range: [1, 5]
-    if: "'\"outcome\":\"pr\"' in outputs['files'].get('output/agent-outcome.json', '')"
+    # Skipped, not scored, when the capture hook could not finish the judge's
+    # artifacts (the marker is written for failures before and after the outcome).
+    if: "'\"outcome\":\"pr\"' in outputs['files'].get('output/agent-outcome.json', '') and 'output/infrastructure-failure.json' not in outputs['files']"
     agent:
       # Claude Code runner. The judge must write its verdict to
       # ./output/score.json (harness contract; without write access the
@@ -396,7 +400,7 @@ judges:
     model: claude-opus-5
     samples: 1
     score_range: [1, 5]
-    if: "'\"outcome\":\"declined\"' in outputs['files'].get('output/agent-outcome.json', '')"
+    if: "'\"outcome\":\"declined\"' in outputs['files'].get('output/agent-outcome.json', '') and 'output/infrastructure-failure.json' not in outputs['files']"
     agent:
       # Claude Code runner. The judge must write its verdict to
       # ./output/score.json (harness contract; without write access the

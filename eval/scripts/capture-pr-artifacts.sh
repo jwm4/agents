@@ -14,7 +14,11 @@
 #                        output/infrastructure-failure.json is written, which
 #                        run-functional.sh counts as a case failure (the hook's
 #                        own exit code is swallowed by the harness's
-#                        continue-on-failure hook mode).
+#                        continue-on-failure hook mode). A failure after the
+#                        outcome is known keeps the outcome, adds
+#                        "artifacts_incomplete": true and writes the same
+#                        marker; the judges that read judge/ skip or error on
+#                        it instead of grading the gap.
 #     regression.json    {command, exit_code, timed_out, sandbox_failed, ...}
 #     regression.log     raw test output (run inside a throwaway OpenShell
 #                        sandbox by run-in-sandbox.sh, never on this host)
@@ -31,7 +35,9 @@
 #                        so the decline judge can check the stated reason
 #
 # If no PR exists, pr.json records pr_found=false and the rest is skipped.
-set -euo pipefail
+# -E: the ERR traps below must fire for failures inside functions too (no_pr,
+# infra_fail); without errtrace bash runs them only for top-level commands.
+set -eEuo pipefail
 
 CASE_WORKSPACE="${CASE_WORKSPACE:?CASE_WORKSPACE is required}"
 CASE_SOURCE_DIR="${CASE_SOURCE_DIR:?CASE_SOURCE_DIR is required}"
@@ -69,8 +75,21 @@ write_outcome() { # outcome reason [infrastructure:true|false]
       "$(json_str "$1")" "$(json_str "$2")" "${3:-false}" > "$OUTPUT_DIR/agent-outcome.json"
   fi
   # The outcome is known from here on; a later failure is a gap in the
-  # artifacts, not in knowing what the agent did.
-  trap - ERR
+  # judge's artifacts, not in knowing what the agent did. It still has to be
+  # marked, or the judges would grade the gap as the agent's doing (missing
+  # regression.json reads as failing tests, a missing pr-head/ as a PR with
+  # nothing behind it).
+  trap 'on_artifact_err "$LINENO" "$?"' ERR
+}
+on_artifact_err() { # line exit-code
+  local why="capture hook aborted after the outcome at line $1 (exit $2): judge artifacts incomplete"
+  write_marker "$why"
+  if command -v jq >/dev/null && [[ -f "$OUTPUT_DIR/agent-outcome.json" ]]; then
+    jq -c --arg r "$why" '. + {artifacts_incomplete: true, artifacts_incomplete_reason: $r}' \
+      "$OUTPUT_DIR/agent-outcome.json" > "$OUTPUT_DIR/agent-outcome.json.tmp" \
+      && mv "$OUTPUT_DIR/agent-outcome.json.tmp" "$OUTPUT_DIR/agent-outcome.json"
+  fi
+  echo "outcome kept; $why" >&2
 }
 # Anything that exits this script before an outcome is recorded is a capture
 # failure (a fixture record jq cannot parse, a gh call that errored). set -e
@@ -171,10 +190,12 @@ no_pr() {
     write_outcome failed "$reason"
     echo "outcome: failed ($reason)"
   elif [[ -n "$final_msg" && -f "$run_dir/metrics.json" ]]; then
-    write_outcome declined "$1"
     # Stage the repository the agent was given so the decline judge can
-    # verify claims like "this endpoint already exists".
+    # verify claims like "this endpoint already exists"; staged before the
+    # outcome is written, so a failure here is a capture failure, not a
+    # decline the judge would grade against a snapshot that is not there.
     rsync -a --exclude .git "$CASE_SOURCE_DIR/repo/" "$JUDGE_DIR/repo-snapshot/"
+    write_outcome declined "$1"
     echo "outcome: declined (final message ${#final_msg} chars); staged repo-snapshot/"
   else
     write_outcome failed "$1"
