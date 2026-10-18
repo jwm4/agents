@@ -68,11 +68,15 @@ hooks:
     - command: "capture-fixture.sh"
       timeout: 120
       description: "Capture issue + PR state for judges"
-    - command: "capture-pr-artifacts.sh"
-      # EVAL_SANDBOX_READY_TIMEOUT (900 s) plus test_timeout_s (up to 2400)
-      # plus the 60 s exec grace is 3360 s, before sandbox creation, upload
-      # and teardown. If this still runs out, the harness sends SIGTERM and
-      # the hook's TERM trap records a capture failure before it dies.
+    - command: "capture-pr-artifacts.py"
+      # Must cover EVAL_SANDBOX_READY_TIMEOUT (900 s) plus test_timeout_s
+      # (1800 in every case today; nothing enforces an upper bound, so a case
+      # that raises it must keep 900 + test_timeout_s + EVAL_SANDBOX_EXEC_GRACE
+      # (60 s by default) + 15 s to kill the exec client under this), before
+      # sandbox creation, upload and teardown. If
+      # this still runs out, the harness sends SIGTERM and the hook records a
+      # capture failure before it dies; a provisional marker also stands while
+      # the tests run, so even a SIGKILL leaves the case marked.
       timeout: 3600
       on_failure: continue
       description: "Save the PR diff and write-up; run the repo's own tests on the PR head in a sandbox"
@@ -147,7 +151,10 @@ outputs:
     schema: |
       Read by the Python check judges.
       fixture-state.json   issue state plus PRs opened by the post-script
-      pr.json              the agent's PR metadata and description
+      pr.json              the agent's PR metadata and description; diff_source is
+                           github, or local when GitHub would not return the diff and
+                           it was computed from the checkout (diff_captured: false when
+                           neither worked)
       agent-outcome.json   {"outcome":"pr"|"declined"|"failed"} + final-message excerpt
       regression.json/.log the repo's own tests run on the PR head
       review-result.json   fullsend review agent findings (review_ran, findings,
@@ -174,17 +181,24 @@ judges:
     description: >
       Post-script must open at least one pull request on an agent/ branch
       (end-to-end success). Other PRs on the throwaway repo, e.g. Dependabot's,
-      do not count.
+      do not count. A PR list GitHub would not return (pull_requests_error in
+      the fixture record) or a capture failure (the marker) is a judge error,
+      not a missing PR.
     check: |
       import json
+      marker = outputs["files"].get("output/infrastructure-failure.json")
+      if marker:
+          raise RuntimeError("capture failed, not the agent: " + str(json.loads(marker).get("reason")))
       raw = outputs["files"].get("output/fixture-state.json")
       if not raw:
-          return False, "fixture-state.json not found — capture-fixture.sh did not run or failed"
+          raise RuntimeError("fixture-state.json not found: capture-fixture.sh did not run or failed")
       state = json.loads(raw)
+      if state.get("pull_requests_error"):
+          raise RuntimeError("capture failed, not the agent: PR list not captured: " + str(state["pull_requests_error"]))
       prs = [p for p in (state.get("pull_requests") or [])
              if str(p.get("head", "")).startswith("agent/")]
       if not prs:
-          return False, "No agent/ pull request found — code agent/post-script did not create a PR"
+          return False, "No agent/ pull request found: code agent/post-script did not create a PR"
       openish = [p for p in prs if str(p.get("state", "")).upper() in ("OPEN", "MERGED")]
       if not openish:
           return False, f"PRs present but none open/merged: {prs}"
@@ -211,7 +225,7 @@ judges:
           raise RuntimeError("capture failed, not the agent: " + str(json.loads(marker).get("reason")))
       raw = outputs["files"].get("output/agent-outcome.json")
       if not raw:
-          raise RuntimeError("agent-outcome.json not found: capture-pr-artifacts.sh did not run")
+          raise RuntimeError("agent-outcome.json not found: capture-pr-artifacts.py did not run")
       o = json.loads(raw)
       kind = o.get("outcome")
       if kind == "pr":
@@ -229,16 +243,26 @@ judges:
       missing test result (the PR head would not clone, or the OpenShell
       sandbox never ran the command) is a capture failure: the judge raises
       rather than scoring it, and output/infrastructure-failure.json is set.
-      A sandbox that stopped answering while the tests ran (sandbox_lost) is
-      scored as the tests not passing, since the suite on the PR head most
-      likely took it down.
+      sandbox_lost is scored as the tests not passing: the sandbox stopped
+      answering while the tests ran (the suite on the PR head most likely
+      took it down), or the output held more than one status line (the
+      command printed extra ones), or a status line came back from an exec
+      that did not exit cleanly (a command could print one status line and
+      kill the wrapper shell to escape grading, so that shape is trusted
+      neither as a result nor as a capture failure), or the status value is
+      not an exit code. A run that hits the test timeout with no start line
+      is scored as a timeout, not a capture failure, since openshell may
+      buffer output; a failed exec with no start line is a capture failure,
+      which assumes the relay delivers the start line before a command can
+      take the sandbox down. Policy, not proof; output/regression.log ends
+      with the runner's note saying which shape.
     check: |
       import json
       if outputs["files"].get("output/infrastructure-failure.json"):
           raise RuntimeError("capture failed, not the agent: " + str(json.loads(outputs["files"]["output/infrastructure-failure.json"]).get("reason")))
       raw = outputs["files"].get("output/regression.json")
       if not raw:
-          raise RuntimeError("regression.json not found: capture-pr-artifacts.sh did not reach the regression step")
+          raise RuntimeError("regression.json not found: capture-pr-artifacts.py did not reach the regression step")
       r = json.loads(raw)
       if r.get("not_applicable"):
           return True, f"Not applicable: {r.get('reason')}"
@@ -252,7 +276,7 @@ judges:
       if r.get("sandbox_failed"):
           raise RuntimeError("capture failed, not the agent: the OpenShell sandbox could not be set up (see output/regression.log)")
       if r.get("sandbox_lost"):
-          return False, "The sandbox stopped answering while the tests ran (see output/regression.log): counted as the tests not passing"
+          return False, "No trustworthy test status came back from the sandbox (the runner's note at the end of output/regression.log says why): counted as the tests not passing"
       code = r.get("exit_code")
       if code is None:
           return False, "No exit code recorded"
@@ -265,12 +289,17 @@ judges:
   - name: review_agent_ran
     description: >
       The fullsend review agent produced findings for the PR (advisory: the
-      quality judge is told when this input is missing).
+      quality judge is told when this input is missing). A case the capture
+      hook marked as a capture failure skips the review, and this judge
+      raises rather than scoring the skip.
     check: |
       import json
+      marker = outputs["files"].get("output/infrastructure-failure.json")
+      if marker:
+          raise RuntimeError("capture failed, not the agent: " + str(json.loads(marker).get("reason")))
       raw = outputs["files"].get("output/review-result.json")
       if not raw:
-          return False, "review-result.json not found — run-review-agent.sh did not run"
+          return False, "review-result.json not found: run-review-agent.sh did not run"
       r = json.loads(raw)
       if not r.get("review_ran"):
           return False, f"Review agent did not run: {r.get('reason')}"

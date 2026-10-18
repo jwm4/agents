@@ -14,7 +14,7 @@ source:
   vendored: "full tree at the snapshot (11024 files, 108M); removed: .github/workflows .github/dependabot.yml .github/renovate.json (automation that would act on the ephemeral repo)"
 
 # Pass-to-pass: the repository's own test command, run on the agent's PR head
-# from the repo root (capture-pr-artifacts.sh). Use what the repo's CI runs.
+# from the repo root (capture-pr-artifacts.py). Use what the repo's CI runs.
 # The monorepo's root turbo task test:unit is missing in this snapshot, so run
 # the frontend Jest suite directly (371 suites / ~4160 tests). Measured
 # 2026-09-25 on the bare snapshot: about 2 min including npm ci when the

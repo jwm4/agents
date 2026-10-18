@@ -39,7 +39,9 @@ sandbox, provider or harness that would not load), a case whose
 `after_each` hook left `output/infrastructure-failure.json` (the hook could
 not establish what the agent did, or established it but could not finish the
 judge's artifacts, in which case the outcome is kept and marked
-`artifacts_incomplete`; the file carries `reason`, `hook` and `at`), and the
+`artifacts_incomplete`; the file carries `reason`, `hook` and `at`, plus
+`provisional: true` when the hook was killed outright while the regression
+tests ran and never replaced its provisional marker with a result), and the
 deterministic contract judges `pr_created`, `new_commit`
 and `sandbox_started`. The other judges run and are reported, but don't
 fail the run:

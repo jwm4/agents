@@ -14,7 +14,7 @@ source:
   vendored: "full tree at the snapshot (2045 files, 24M); removed: .github/workflows .github/dependabot.yml (automation that would act on the ephemeral repo)"
 
 # Pass-to-pass: the repository's own test command, run on the agent's PR head
-# from the repo root (capture-pr-artifacts.sh). Use what the repo's CI runs.
+# from the repo root (capture-pr-artifacts.py). Use what the repo's CI runs.
 # Mirrors the fork's CI (make test): uv-managed deps, pytest in parallel, with
 # the provider keys unset so nothing tries a live LLM. Measured 2026-09-24 on
 # the bare snapshot: 6723 passed, 211 skipped, 55 s including dependency

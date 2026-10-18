@@ -3,7 +3,7 @@
 #   1. input.yaml holds real epic text (no TODO/PLACEHOLDER)
 #   2. annotations has a regression command (judge_notes is optional)
 #   3. the regression command passes on the bare snapshot (scratch copy of repo/),
-#      run inside the same OpenShell sandbox the eval uses (run-in-sandbox.sh)
+#      run inside the same OpenShell sandbox the eval uses (run-in-sandbox.py)
 # A failing 3 means the case is mis-cut or the command is wrong, not the agent.
 set -uo pipefail
 CASE_DIR="${1:?usage: check-case.sh <case-dir>}"
@@ -24,11 +24,11 @@ if [[ -n "$cmd" && "$cmd" != "TODO" ]]; then
   WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
   cp -a "$CASE_DIR/repo/." "$WORK/" || { echo "ERROR: could not copy repo/ to a scratch directory" >&2; exit 1; }
   # Same sandbox the eval uses for the PR head, so this also proves the command
-  # works with the toolchain inside the coder's image (run-in-sandbox.sh).
-  rc=0; "$(dirname "$0")/run-in-sandbox.sh" "$WORK" "$cmd" "$tmo" "$CASE_DIR/.check-regression.log" || rc=$?
+  # works with the toolchain inside the coder's image (run-in-sandbox.py).
+  rc=0; "$(dirname "$0")/run-in-sandbox.py" "$WORK" "$cmd" "$tmo" "$CASE_DIR/.check-regression.log" || rc=$?
   status=$(cat "$CASE_DIR/.check-regression.log.status" 2>/dev/null || echo sandbox); rm -f "$CASE_DIR/.check-regression.log.status"
   if [[ "$status" == sandbox ]]; then echo "BAD  3. could not run the sandbox (log: $CASE_DIR/.check-regression.log); nothing known about the command"; fail=1;
-  elif [[ "$status" == lost ]]; then echo "BAD  3. the sandbox stopped answering while the regression command ran (log: $CASE_DIR/.check-regression.log); the command may be killing it"; fail=1;
+  elif [[ "$status" == lost ]]; then echo "BAD  3. no single trustworthy status came back from the sandbox (log: $CASE_DIR/.check-regression.log, the runner's note at the end says which shape); the command may be killing it or printing status lines"; fail=1;
   elif [[ "$status" == timeout ]]; then echo "BAD  3. regression command timed out after ${tmo}s on the bare snapshot (log: $CASE_DIR/.check-regression.log)"; fail=1;
   elif [[ $rc -eq 0 ]]; then echo "OK   3. regression command passes on the bare snapshot (in the sandbox)"; rm -f "$CASE_DIR/.check-regression.log";
   else echo "BAD  3. regression command exit $rc on the bare snapshot (log: $CASE_DIR/.check-regression.log)"; fail=1; fi

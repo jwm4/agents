@@ -47,10 +47,24 @@ outcome, marks it `artifacts_incomplete`, and leaves the same marker; the test
 and quality judges then skip or error rather than grade what is missing as the
 agent's doing, and the review step is skipped. The hook checks this once more
 as it exits, whatever route took it there: a recorded outcome without the
-artifacts the judges need for it gets the marker. A sandbox that stops
-answering while the tests run is a different case: the test suite on the PR
-head most likely took it down, so it is recorded as `sandbox_lost` and scored
-as the tests not passing, not as a capture failure.
+artifacts the judges need for it gets the marker. When GitHub will not return
+the PR diff (it refuses very large ones), the hook computes it from the
+checkout against the base branch and records `diff_source: local` in
+`pr.json`; only a failure of both is a capture failure, since an oversized PR
+is the agent's PR. A sandbox that stops answering while the tests run is a
+different case: the test suite on the PR head most likely took it down, so it
+is recorded as `sandbox_lost` and scored as the tests not passing, not as a
+capture failure. That is a policy, not a proof: a status line followed by a
+failed exec is also `sandbox_lost`, because a command could print one status
+line and kill the wrapper shell to escape grading; a run that hits the
+test timeout without a start line is scored as a timeout, not a capture
+failure, because openshell may buffer output; and a failed exec with no start
+line is a capture failure, which assumes the relay delivers the start line
+before a command's first action can take the sandbox down. Two shapes are
+accepted gaps in
+the other direction: a PR head the host cannot check out, or one too large to
+archive, upload or extract into the sandbox, is recorded as a capture failure
+although the content is the agent's.
 
 1. Deterministic first: the outcome; a PR exists; the repository's own test
    command still passes on the PR head; budgets are reported.
@@ -146,15 +160,17 @@ opens the epic as an issue. Runner: `run-fullsend.sh` runs the code agent,
 whose post-script opens the PR. `after_each`, in order:
 
 1. `capture-fixture.sh` records issue and PR state.
-2. `capture-pr-artifacts.sh` writes `output/` (JSON for the check judges) and
+2. `capture-pr-artifacts.py` writes `output/` (JSON for the check judges) and
    `judge/` (plain text for the agent judge: `task.md`, `notes.md`, `pr.md`,
    `diff.patch`, `tests.md`, and `pr-head/`, a full checkout of the PR head
    without `.git`), and runs the regression command on the PR head inside a
-   throwaway OpenShell sandbox (`run-in-sandbox.sh`: the coder's image and
+   throwaway OpenShell sandbox (`run-in-sandbox.py`: the coder's image and
    policy, the credential-free `package-registries` provider as the only
    network, so the PR's own install scripts and tests never see this
    machine's home directory or tokens). The command must therefore work with
-   the toolchain in the coder's image, which `check-case.sh` verifies.
+   the toolchain in the coder's image, which `check-case.sh` verifies. Both
+   scripts are Python; `make script-test` runs their unit tests against stub
+   `gh`, `git` and `openshell` commands, including the failure paths below.
 3. `run-review-agent.sh` runs `fullsend run review` on the PR, configured
    as production runs it (see [The review step](#the-review-step)), with the
    post-script disabled, and keeps `agent-result.json` as
@@ -275,13 +291,34 @@ For a macOS host: `TMPDIR=/tmp`; a `GOOS=linux` fullsend build in
 unaffected.
 
 The regression sandbox asks for 8 GiB (`EVAL_SANDBOX_MEMORY` overrides it;
-the odh-dashboard jest workers were killed under less). `run-in-sandbox.sh`
+the odh-dashboard jest workers were killed under less). `run-in-sandbox.py`
 waits up to `EVAL_SANDBOX_READY_TIMEOUT` (900 s) for the sandbox to be Ready
 and records `sandbox_failed` after that, which the capture hook treats like a
 PR head that would not clone: the outcome is kept, marked
 `artifacts_incomplete`, and the capture-failure marker is written, so the
 missing test result is a case failure rather than a failing PR. On this Mac
 a fresh sandbox has been Ready within a minute, with the coder image cached.
+Past `test_timeout_s` the runner gives the exec client `EVAL_SANDBOX_EXEC_GRACE`
+seconds (60) before killing it and recording a timeout.
+
+How the runner knows what happened inside the sandbox: its wrapper prints a
+start line before the command and a status line with the exit code after it,
+and the test suite under test cannot forge either into a pass. The start line
+appears before the command runs, so a run that ends with no start line is one
+the sandbox never ran (`sandbox_failed`, a capture failure), unless it ran out
+the test timeout first: a timeout outranks the start line, since openshell
+may buffer output, so a relay that hung for the whole window is scored as a
+timeout. After the command the wrapper kills every process the command left
+behind (the command runs in its own session when the image has `setsid`;
+without `setsid` the kill is skipped and the one-status-line rule below is
+the only defence) and then prints the status line, so a backgrounded writer
+cannot add one. `sandbox_lost`, scored as the tests not passing, covers a
+start line with no status line, a log with more than one status line (the
+extra lines are left in the log for a reader), a status line with an exec
+that did not exit cleanly, and a status value that is not an exit code. The
+log is read line by line as bytes, so neither its size nor a NUL in the test
+output can derail the match; the runner's own note at the end of
+`output/regression.log` names which shape it saw.
 
 Memory during judging: `judge/` is a declared output so the agent judge can
 browse it, and the harness stages declared outputs by reading every file

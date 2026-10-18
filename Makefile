@@ -13,7 +13,7 @@ help:
 	@echo "  help          - Show this help message"
 	@echo "  script-build  - Bundle .src.sh scripts into committed .sh artifacts"
 	@echo "  check-bundle  - Verify committed bundles match script-build output"
-	@echo "  script-test   - Run agent shell script unit tests"
+	@echo "  script-test   - Run the script unit tests (bash and python3)"
 	@echo "  behaviour-test - Run live behaviour tests"
 	@echo "  test          - Alias for script-test"
 	@echo "  lint          - Lint skills/agents/instructions with skillsaw"
@@ -99,8 +99,8 @@ script-test:
 	$(call run-timed,python3 scripts/process-fix-result-test.py)
 	$(call run-timed,bash eval/scripts/scrub-eval-results-test.sh)
 	$(call run-timed,bash eval/scripts/write-fixture-file-test.sh)
-	$(call run-timed,bash eval/scripts/run-in-sandbox-test.sh)
-	$(call run-timed,bash eval/scripts/capture-pr-artifacts-test.sh)
+	$(call run-timed,python3 eval/scripts/run-in-sandbox-test.py)
+	$(call run-timed,python3 eval/scripts/capture-pr-artifacts-test.py)
 	$(call run-timed,bash eval/scripts/materialize-case-test.sh)
 	$(call run-timed,bash eval/scripts/run-review-agent-test.sh)
 	$(call run-timed,bash eval/scripts/aggregate-nightly-test.sh)

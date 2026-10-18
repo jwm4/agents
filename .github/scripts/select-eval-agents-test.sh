@@ -608,6 +608,16 @@ cleanup_fixture "$FIXTURE"
 
 run_test
 FIXTURE="$(setup_fixture)"
+RESULT=$(echo "eval/scripts/capture-pr-artifacts-test.py" | "$SELECT_SCRIPT" --repo-root "$FIXTURE")
+if [[ -z "$RESULT" ]]; then
+  pass "an eval script's Python test file selects nothing either"
+else
+  fail "an eval script's Python test file selects nothing either (got: '$RESULT')"
+fi
+cleanup_fixture "$FIXTURE"
+
+run_test
+FIXTURE="$(setup_fixture)"
 RESULT=$(echo "eval/README.md" | "$SELECT_SCRIPT" --repo-root "$FIXTURE")
 if [[ -z "$RESULT" ]]; then
   pass "an eval/ file outside any agent and the runner selects nothing"

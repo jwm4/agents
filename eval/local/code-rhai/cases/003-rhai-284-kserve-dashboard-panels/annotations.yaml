@@ -25,7 +25,7 @@ source:
   vendored: "tree at the snapshot minus install/ (release manifest bundles, 292 MB, unrelated to the epic) and minus test/e2e/credentials/ and docs/samples/storage/hf/hf_secret.yaml and docs/openshift/serverless/gateways.yaml (upstream dummy-credential fixtures and a sample TLS key that trip secret scanners); removed: .github/workflows (automation that would act on the ephemeral repo)"
 
 # Pass-to-pass: the repository's own test command, run on the agent's PR head
-# from the repo root (capture-pr-artifacts.sh). Use what the repo's CI runs.
+# from the repo root (capture-pr-artifacts.py). Use what the repo's CI runs.
 # kserve's full `make test` needs envtest binaries and runs for a long time;
 # the epic only touches Grafana dashboard definitions under config/. This
 # checks the tree still builds, every dashboard file is valid YAML, and two

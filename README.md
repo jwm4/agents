@@ -49,13 +49,13 @@ The agent never has direct write access to the repository. All mutations flow th
 
 ## Testing
 
-Run all agent shell script test suites from the repo root:
+Run all script test suites from the repo root:
 
 ```bash
 make test
 ```
 
-This is an alias for `make script-test`, which runs the `scripts/*-test.sh` suites. CI also runs `make check-bundle` and executes `make script-test` twice (source and bundled modes) via `.github/workflows/script-test.yml`.
+This is an alias for `make script-test`, which runs the `*-test.sh` and `*-test.py` suites under `scripts/`, `eval/`, `hack/` and `.github/scripts/` (bash and python3 respectively). CI also runs `make check-bundle` and executes `make script-test` twice (source and bundled modes) via `.github/workflows/script-test.yml`.
 
 The live behaviour suite runs the isolated dev scenarios described in
 [`docs/behaviour-testing.md`](docs/behaviour-testing.md):
@@ -111,4 +111,4 @@ This repository is versioned in lockstep with [fullsend](https://github.com/full
 | `release.yml` | This repo | Creates GitHub Releases and moves the `v0` tag on version tag push |
 | `notify-agent-sync.yml` | This repo | Dispatches `agents-updated` event to `.fullsend` for cross-repo digest sync |
 | `lint.yml` | This repo | Runs pre-commit checks, commit-message linting, and skillsaw on PRs and main branch pushes |
-| `script-test.yml` | This repo | Runs agent shell script tests on PRs and main branch pushes |
+| `script-test.yml` | This repo | Runs the script unit tests (bash and python3) on PRs and main branch pushes |

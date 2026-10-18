@@ -155,7 +155,7 @@ case "${1:-}" in
         fi
       done
       # STUB_INFRA_MARKER=name:reason drops the after_each capture marker
-      # into that case's output/, as capture-pr-artifacts.sh does when it
+      # into that case's output/, as capture-pr-artifacts.py does when it
       # could not establish what the agent did.
       if [[ -n "${STUB_INFRA_MARKER:-}" ]]; then
         IFS=':' read -r mname mreason <<< "${STUB_INFRA_MARKER}"

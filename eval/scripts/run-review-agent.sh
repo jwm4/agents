@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # after_each hook (eval/local/code-rhai): run the fullsend review agent on the PR the
 # code agent opened, without posting anything, and keep its findings for the
-# quality judge. Runs after capture-pr-artifacts.sh and before teardown.
+# quality judge. Runs after capture-pr-artifacts.py and before teardown.
 #
 # The review step is held constant across arms, whatever the code agent ran on
 # (EVAL_RUNTIME/EVAL_MODEL), and by default it is the review agent as the
@@ -63,10 +63,11 @@ render_review() {
 
 skip() { jq -n --arg r "$1" '{review_ran: false, reason: $r}' > "$OUTPUT_DIR/review-result.json"; render_review; echo "review agent skipped: $1"; exit 0; }
 [[ "${EVAL_SKIP_REVIEW:-}" == "1" ]] && skip "EVAL_SKIP_REVIEW=1"
-[[ -f "$PR_JSON" ]] || skip "pr.json missing; capture-pr-artifacts.sh did not run"
 # A capture failure means the quality judge will not run, so a review would
-# cost an hour for a record nothing scores.
+# cost an hour for a record nothing scores. Checked first: a capture failure
+# before the outcome leaves no pr.json, and the reason is the marker's.
 [[ ! -f "$OUTPUT_DIR/infrastructure-failure.json" ]] || skip "capture failed ($(jq -r '.reason // "unknown"' "$OUTPUT_DIR/infrastructure-failure.json")); the quality judge will not run"
+[[ -f "$PR_JSON" ]] || skip "pr.json missing; capture-pr-artifacts.py did not run"
 [[ "$(jq -r '.pr_found // false' "$PR_JSON")" == "true" ]] || skip "no PR to review"
 num=$(jq -r .number "$PR_JSON"); url=$(jq -r .url "$PR_JSON")
 

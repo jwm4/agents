@@ -171,7 +171,7 @@ ${prs_yaml}
   vendored: $(jq -n --arg s "full tree at the snapshot (${n_files} files, ${size}); removed: ${removed_note}" '$s')
 
 # Pass-to-pass: the repository's own test command, run on the agent's PR head
-# from the repo root (capture-pr-artifacts.sh). Use what the repo's CI runs.
+# from the repo root (capture-pr-artifacts.py). Use what the repo's CI runs.
 regression_tests:
   command: "TODO"
 test_timeout_s: 1800

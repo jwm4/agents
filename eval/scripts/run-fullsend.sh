@@ -305,20 +305,20 @@ timeout "$EVAL_TIMEOUT" fullsend run "$AGENT" \
 if [[ $rc -ne 0 ]]; then
   echo "WARNING: fullsend run exited with status $rc" >&2
 fi
-# Record how the run ended, so capture-pr-artifacts.sh can tell a clean stop
+# Record how the run ended, so capture-pr-artifacts.py can tell a clean stop
 # (a decline) from a run that timed out or crashed without opening a PR.
 # 124 is `timeout` expiring; fullsend's own iteration timeout surfaces as a
 # non-zero status from the post-script.
 # Written whole or not at all (a half-written or empty file would read as a
-# crashed run), and loudly when it fails, since a missing file turns every
-# clean stop into "failed" downstream.
+# crashed run), and loudly when it fails, since a missing file makes the
+# capture hook record the case as a capture failure, not a scored result.
 if jq -n --argjson rc "$rc" --arg agent "$AGENT" --arg t "$EVAL_TIMEOUT" \
      '{agent: $agent, exit_code: $rc, timed_out: ($rc == 124), eval_timeout_s: ($t|tonumber? // $t)}' \
      > "$OUTPUT_DIR/run-status.json.tmp"; then
   mv "$OUTPUT_DIR/run-status.json.tmp" "$OUTPUT_DIR/run-status.json"
 else
   rm -f "$OUTPUT_DIR/run-status.json.tmp"
-  echo "WARNING: could not write $OUTPUT_DIR/run-status.json; a no-PR run will be classed as failed, not declined" >&2
+  echo "WARNING: could not write $OUTPUT_DIR/run-status.json; a no-PR run will be recorded as a capture failure, not scored" >&2
 fi
 
 # Remove env file to prevent secrets from being uploaded as artifacts

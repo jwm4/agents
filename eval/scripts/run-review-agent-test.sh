@@ -191,7 +191,7 @@ mv "$FS/.fullsend/config.yaml.away" "$FS/.fullsend/config.yaml"
 
 # --- a capture failure skips the review --------------------------------------
 WS=$(new_ws capture-failed)
-echo '{"reason": "could not clone the PR head", "hook": "capture-pr-artifacts.sh"}' > "$WS/output/infrastructure-failure.json"
+echo '{"reason": "could not clone the PR head", "hook": "capture-pr-artifacts.py"}' > "$WS/output/infrastructure-failure.json"
 run_hook "$WS"
 if [[ $RC -eq 0 && "$(jq -r .review_ran "$WS/output/review-result.json")" == "false" \
       && "$(jq -r .reason "$WS/output/review-result.json")" == *"capture failed (could not clone the PR head)"* \
@@ -199,6 +199,18 @@ if [[ $RC -eq 0 && "$(jq -r .review_ran "$WS/output/review-result.json")" == "fa
   pass "a case the capture hook marked as a capture failure is not reviewed, and the reason is recorded"
 else
   fail "a case the capture hook marked as a capture failure is not reviewed (rc=$RC, result=$(cat "$WS/output/review-result.json" 2>/dev/null), out: $OUT)"
+fi
+
+# A capture failure before the outcome leaves no pr.json; the marker's reason wins.
+WS="$TMP/capture-failed-early"; mkdir -p "$WS/output"
+echo '{"reason": "fixture-state.json missing; capture-fixture.sh did not run", "hook": "capture-pr-artifacts.py"}' \
+  > "$WS/output/infrastructure-failure.json"
+run_hook "$WS"
+if [[ $RC -eq 0 && "$(jq -r .review_ran "$WS/output/review-result.json")" == "false" \
+      && "$(jq -r .reason "$WS/output/review-result.json")" == *"capture failed (fixture-state.json missing"* ]]; then
+  pass "a capture failure before the outcome (no pr.json) is recorded with the marker's reason, not as a missing pr.json"
+else
+  fail "a capture failure before the outcome is recorded with the marker's reason (rc=$RC, result=$(cat "$WS/output/review-result.json" 2>/dev/null), out: $OUT)"
 fi
 
 echo ""
