@@ -2,7 +2,8 @@
 # Tests for run-review-agent.sh's review configuration: by default the review
 # runs with the routing and aliases the repo's own .fullsend/config.yaml gives
 # the review agent, on a scratch copy of FULLSEND_DIR with the eval overlay's
-# persona pins dropped; EVAL_CLAUDE_GENERATION pins the Claude aliases;
+# persona pins dropped; EVAL_CLAUDE_GENERATION (or the eval config's
+# EVAL_CLAUDE_GENERATION_DEFAULT) pins the Claude aliases;
 # EVAL_REVIEW_CONFIG=eval runs under the repo-root config as is. A stub
 # run-fullsend.sh records which fullsend directory it was handed and what that
 # directory's config says, and fakes a review result.
@@ -133,12 +134,28 @@ else
   fail "EVAL_CLAUDE_GENERATION=5 pins both aliases (rc=$RC, config: $(tr '\n' ' ' < "$WS/output/review-run/seen-config.yaml" 2>/dev/null), out: $OUT)"
 fi
 
-WS=$(new_ws explicit); run_hook "$WS" EVAL_ALIAS_OPUS=claude-opus-5 OPENAI_API_KEY=k
-if [[ $RC -eq 0 && "$(seen "$WS" '.models.aliases.opus')" == "claude-opus-5" && "$(seen "$WS" '.models.aliases.sonnet')" == "claude-sonnet-5-5" ]]; then
-  pass "EVAL_ALIAS_OPUS pins one alias and leaves the other at production's"
+WS=$(new_ws gendefault); run_hook "$WS" EVAL_CLAUDE_GENERATION_DEFAULT=5 OPENAI_API_KEY=k
+if [[ $RC -eq 0 && "$(seen "$WS" '.models.aliases.opus')" == "claude-opus-5" && "$(cfg_of "$WS" .review_config.claude_generation_pin)" == "5" ]]; then
+  pass "EVAL_CLAUDE_GENERATION_DEFAULT from the eval config pins the aliases when no explicit generation is given"
 else
-  fail "EVAL_ALIAS_OPUS pins one alias (rc=$RC, config: $(tr '\n' ' ' < "$WS/output/review-run/seen-config.yaml" 2>/dev/null), out: $OUT)"
+  fail "EVAL_CLAUDE_GENERATION_DEFAULT pins the aliases (rc=$RC, config: $(tr '\n' ' ' < "$WS/output/review-run/seen-config.yaml" 2>/dev/null), out: $OUT)"
 fi
+
+WS=$(new_ws genoverride); run_hook "$WS" EVAL_CLAUDE_GENERATION_DEFAULT=5 EVAL_CLAUDE_GENERATION=5-5 OPENAI_API_KEY=k
+if [[ $RC -eq 0 && "$(seen "$WS" '.models.aliases.opus')" == "claude-opus-5-5" && "$(cfg_of "$WS" .review_config.claude_generation_pin)" == "5-5" ]]; then
+  pass "an explicit EVAL_CLAUDE_GENERATION wins over the eval config's default"
+else
+  fail "an explicit EVAL_CLAUDE_GENERATION wins over the default (rc=$RC, config: $(tr '\n' ' ' < "$WS/output/review-run/seen-config.yaml" 2>/dev/null), out: $OUT)"
+fi
+
+cp "$FS/config.yaml" "$FS/config.yaml.keep"; yq -i '.agents[1].source = "harness/review.yaml"' "$FS/config.yaml"
+WS=$(new_ws noentry); run_hook "$WS"
+if [[ $RC -eq 0 && "$(jq -r .review_ran "$WS/output/review-result.json")" == "false" && "$(jq -r .reason "$WS/output/review-result.json")" == *"no agents entry with source eval/harness/review.yaml"* ]]; then
+  pass "a root config that registers the review agent another way is refused rather than run unrouted"
+else
+  fail "a root config without the eval review entry is refused (rc=$RC, result: $(cat "$WS/output/review-result.json" 2>/dev/null), out: $OUT)"
+fi
+mv "$FS/config.yaml.keep" "$FS/config.yaml"
 
 WS=$(new_ws badgen); run_hook "$WS" EVAL_CLAUDE_GENERATION='5; rm -rf x'
 if [[ $RC -ne 0 && "$OUT" == *"EVAL_CLAUDE_GENERATION must look like"* ]]; then

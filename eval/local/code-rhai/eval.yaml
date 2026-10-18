@@ -39,14 +39,15 @@ execution:
     # the routing and aliases the agents repo's own .fullsend/config.yaml gives
     # the review agent (pi runtime, parent on `sonnet`, personas per its
     # `subagents` block), the same for every arm whatever the code agent ran
-    # on. EVAL_CLAUDE_GENERATION (or EVAL_ALIAS_OPUS/EVAL_ALIAS_SONNET) pins
-    # the Claude aliases for a project that does not serve production's
-    # generation; EVAL_REVIEW_CONFIG=eval runs under this repo-root config as
+    # on. The Claude aliases are pinned to the generation the project serves:
+    # EVAL_CLAUDE_GENERATION if set, else EVAL_CLAUDE_GENERATION_DEFAULT below,
+    # which must agree with models.skill (both say what this project serves;
+    # change them together, or set the default empty where production's 5.5
+    # is served). EVAL_REVIEW_CONFIG=eval runs under this repo-root config as
     # is. See the README, "The review step". EVAL_SKIP_REVIEW=1 skips it.
     EVAL_REVIEW_CONFIG: $EVAL_REVIEW_CONFIG
     EVAL_CLAUDE_GENERATION: $EVAL_CLAUDE_GENERATION
-    EVAL_ALIAS_OPUS: $EVAL_ALIAS_OPUS
-    EVAL_ALIAS_SONNET: $EVAL_ALIAS_SONNET
+    EVAL_CLAUDE_GENERATION_DEFAULT: "5"
     EVAL_REVIEW_RUNTIME: $EVAL_REVIEW_RUNTIME
     EVAL_REVIEW_MODEL: $EVAL_REVIEW_MODEL
     EVAL_REVIEW_EFFORT: $EVAL_REVIEW_EFFORT
@@ -109,7 +110,8 @@ models:
   # Opus arm ran; it is a stand-in for production's Opus 5.5, not production
   # itself. A project that serves claude-opus-5-5 should run it as an arm
   # (EVAL_MODEL=claude-opus-5-5). A plain run uses this pin; EVAL_MODEL selects
-  # another arm for a run.
+  # another arm for a run. execution.env.EVAL_CLAUDE_GENERATION_DEFAULT makes
+  # the review step's Claude aliases match this generation; change both.
   skill: claude-opus-5
   # Judge: Opus 5 on the Claude Code runner, the same judge for every arm so
   # the arms are scored identically, and above every model it judges. On the
@@ -192,7 +194,9 @@ judges:
       the rationale carries the category and, for a decline, the agent's own
       words, so a reader can see why without opening the transcript. A
       capture or fixture failure is "failed" with infrastructure=true, never a
-      decline, whatever the agent said; it leaves
+      decline, whatever the agent said. Every capture failure, before the
+      outcome was known or after it (the judge's artifacts incomplete; the
+      outcome file then carries artifacts_incomplete), leaves
       output/infrastructure-failure.json, which run-functional.sh counts as a
       case failure, and this judge raises on it (a judge error, not a score),
       so no path that scores these runs, run-functional.sh or the harness
@@ -506,7 +510,8 @@ judges:
 # No thresholds: this is a local eval, never a CI gate. Every judge is
 # reported per case; a run exits non-zero only when the runner itself sees an
 # infrastructure failure (a case that never reached the agent, a capture hook
-# that could not establish what the agent did). A judge that errors is
+# that could not establish what the agent did or could not finish the judge's
+# artifacts after the outcome was known). A judge that errors is
 # reported in the run output ("JUDGE ERROR") and excluded from that judge's
 # aggregate; with no thresholds it does not change the exit code.
 # Agent behaviour, including declines and failing repo tests, is the result,

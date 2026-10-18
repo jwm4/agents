@@ -237,7 +237,11 @@ When running agents locally with `--fullsend-dir .`, the CLI reads the
 root `config.yaml`. That file is also the functional-eval workspace, so
 every agent runs on `claude-sonnet-5-5` (its `models.aliases` points both
 `sonnet` and `opus` there, and review uses the eval-only overlay
-`eval/harness/review.yaml`). Your Vertex project must serve that id; to
+`eval/harness/review.yaml`). The `local/code-rhai` eval is the exception:
+its review step defaults to the production routing and aliases from
+`.fullsend/config.yaml` (`EVAL_REVIEW_CONFIG=eval` keeps the Sonnet-only
+review; see `eval/local/code-rhai/README.md`, "The review step"). Your
+Vertex project must serve that id; to
 run another model, pass a full id with `--model`. To switch from the
 default Claude Code runtime to pi, add a `runtime` key:
 

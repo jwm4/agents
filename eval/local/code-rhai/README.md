@@ -187,17 +187,22 @@ so the review is the same for every arm, and by default
 aliases that entry gives it: at run time it reads the review agent's
 `subagents` block and the `models.aliases` from the repo's own
 `.fullsend/config.yaml`, applies them to a scratch copy of the fullsend
-directory, and drops the eval-only overlay's persona pins. Nothing is copied
-into the eval, so the eval follows production when production changes.
-`output/review-metrics.json` `review_config` records the mode, the aliases
-and the routing that were applied.
+directory, and drops the eval-only overlay's persona pins. The persona
+routing and the aliases therefore follow production when production changes;
+the parent's runtime and model are set by the script. `output/review-metrics.json`
+`review_config` records the mode, the generation pin, the aliases and the
+routing that were applied.
 
-The eval deviates from that in one place, and only when asked:
-`EVAL_CLAUDE_GENERATION=5` (or `EVAL_ALIAS_OPUS` / `EVAL_ALIAS_SONNET`) pins
-the Claude aliases to a generation the project serves. The recorded runs
-(2026-10-14/15 and later) ran `production` with `EVAL_CLAUDE_GENERATION=5`,
-because the Vertex project they ran on does not serve the 5.5 generation:
-parent on Sonnet 5, challenger on Opus 5, correctness and security on
+The eval deviates from that in one place: the Claude aliases are pinned to
+the generation the project serves, `EVAL_CLAUDE_GENERATION` if set, else
+`EVAL_CLAUDE_GENERATION_DEFAULT` from `eval.yaml`, which sits next to the
+baseline model pin and must agree with it (today both say generation 5; a
+project that serves 5.5 sets the default empty and pins the baseline to 5.5).
+The recorded runs (2026-10-14/15 and later) ran the equivalent of
+`production` with generation 5 through a local wrapper, before this mode
+existed; runs from this commit on record the mode in `review_config`. On the
+Vertex project they ran on, which does not serve the 5.5 generation, that
+gave parent on Sonnet 5, challenger on Opus 5, correctness and security on
 GPT-6.1 Sol, docs-currency and style-conventions on Gemini 3.8 Flash.
 `OPENAI_API_KEY` must be in the environment for the GPT personas; the script
 warns when it is not. Runs before 2026-10-14 used a Claude-only review (see
