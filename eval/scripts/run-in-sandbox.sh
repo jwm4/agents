@@ -32,15 +32,17 @@ AGENTS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HARNESS="${EVAL_SANDBOX_HARNESS:-$AGENTS_ROOT/harness/code.yaml}"
 PROVIDER="${EVAL_SANDBOX_PROVIDER:-package-registries}"
 READY_TIMEOUT="${EVAL_SANDBOX_READY_TIMEOUT:-900}"
-# Both reach bash arithmetic below; accept whole seconds only.
-for v in TMO READY_TIMEOUT; do
-  [[ "${!v}" =~ ^[0-9]+$ ]] || { echo "run-in-sandbox: $v must be a whole number of seconds, got '${!v}'" >&2; exit 125; }
-done
 # Memory for the test run: jest-style runners spawn a worker per CPU and the default
 # sandbox limit SIGKILLs them (odh-dashboard, 2026-10-14). Override with EVAL_SANDBOX_MEMORY.
 STATUS="$LOG.status"
 sandbox_fail() { echo "$1" | tee -a "$LOG" >&2; echo sandbox > "$STATUS"; exit 125; }
 : > "$LOG"; echo sandbox > "$STATUS"   # until the command reports its own status
+# Both timeouts reach bash arithmetic below; accept whole seconds only. Reported
+# like every other setup failure, so the caller finds the reason in the log and
+# a status file, not a missing log.
+for v in TMO READY_TIMEOUT; do
+  [[ "${!v}" =~ ^[0-9]+$ ]] || sandbox_fail "run-in-sandbox: $v must be a whole number of seconds, got '${!v}'"
+done
 for c in openshell yq tar timeout; do
   command -v "$c" >/dev/null || sandbox_fail "run-in-sandbox: $c is required but not found in PATH"
 done

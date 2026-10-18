@@ -293,8 +293,8 @@ status=$(cat "$OUTPUT_DIR/regression.log.status" 2>/dev/null || echo sandbox)
 timed_out=false; [[ "$status" == timeout ]] && timed_out=true
 sandbox_failed=false; [[ "$status" == sandbox ]] && sandbox_failed=true
 rm -f "$OUTPUT_DIR/regression.log.status"
-jq -n --arg c "$cmd" --argjson rc "$rc" --argjson to "$timed_out" --argjson sf "$sandbox_failed" --argjson t "$tmo" \
-  '{command: $c, exit_code: $rc, timed_out: $to, sandbox_failed: $sf, timeout_s: $t, log: "output/regression.log"}' > "$OUTPUT_DIR/regression.json"
+jq -n --arg c "$cmd" --argjson rc "$rc" --argjson to "$timed_out" --argjson sf "$sandbox_failed" --arg t "$tmo" \
+  '{command: $c, exit_code: $rc, timed_out: $to, sandbox_failed: $sf, timeout_s: ($t|tonumber? // $t), log: "output/regression.log"}' > "$OUTPUT_DIR/regression.json"
 {
   echo "# Repository tests on the PR head"; echo
   echo "Command: $cmd"

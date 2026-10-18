@@ -145,10 +145,10 @@ else
 fi
 
 run 'echo ok' '30; echo pwned'
-if [[ $RC -eq 125 ]] && grep -q 'TMO must be a whole number of seconds' "$TMP/stderr-$((TESTS))"; then
-  pass "a non-numeric timeout is refused before any arithmetic"
+if [[ $RC -eq 125 && "$STATUS" == sandbox ]] && grep -q 'TMO must be a whole number of seconds' "$LOG"; then
+  pass "a non-numeric timeout is a sandbox failure with the reason in the log, before any arithmetic"
 else
-  fail "a non-numeric timeout is refused before any arithmetic (rc=$RC, stderr: $(cat "$TMP/stderr-$((TESTS))"))"
+  fail "a non-numeric timeout is a sandbox failure with the reason in the log (rc=$RC status=$STATUS log: $(cat "$LOG" 2>/dev/null))"
 fi
 
 run 'echo ok' 30 STUB_PROVIDER_RC=1
