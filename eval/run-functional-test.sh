@@ -495,6 +495,83 @@ else
 fi
 rm -rf "$ROOT"
 
+# Judge denied_tools is only enforced by agent-eval-harness 1.56.3 and later;
+# the runner refuses to score with an older checkout, and only when the eval
+# declares denied_tools.
+add_denied_tools_judge() { # root
+  cat >> "$1/eval/testagent/eval.yaml" <<'YAML'
+judges:
+  - name: agent_quality
+    type: agent
+    agent:
+      allowed_tools: [Read]
+      denied_tools: [Bash]
+YAML
+}
+run_test
+ROOT="$(mktemp -d)"; setup_fixture "$ROOT"; add_denied_tools_judge "$ROOT"
+echo 'version = "1.49.1"' > "${ROOT}/eval/.agent-eval-harness/pyproject.toml"
+RC=0
+OUT=$(run_rf "$ROOT" testagent EVAL_TIER=full STUB_CASE_RESULTS="001-release-case:0:3,002-full-only-case:0:3" 2>&1) || RC=$?
+if [[ $RC -eq 1 ]] && echo "$OUT" | grep -q "agent-eval-harness 1.49.1 .* ignores judge denied_tools; 1.56.3 or later is required" \
+  && [[ "$(cat "${ROOT}/capture/execute-calls" 2>/dev/null || echo 0)" == "0" ]]; then
+  pass "judge denied_tools with a pre-1.56.3 harness is refused before anything runs"
+else
+  fail "judge denied_tools with a pre-1.56.3 harness is refused before anything runs (rc=$RC, output: $OUT)"
+fi
+rm -rf "$ROOT"
+
+run_test
+ROOT="$(mktemp -d)"; setup_fixture "$ROOT"; add_denied_tools_judge "$ROOT"
+RC=0
+OUT=$(run_rf "$ROOT" testagent EVAL_TIER=full STUB_CASE_RESULTS="001-release-case:0:3,002-full-only-case:0:3" 2>&1) || RC=$?
+if [[ $RC -eq 1 ]] && echo "$OUT" | grep -q "cannot read the agent-eval-harness version"; then
+  pass "judge denied_tools with no readable harness version is refused"
+else
+  fail "judge denied_tools with no readable harness version is refused (rc=$RC, output: $OUT)"
+fi
+rm -rf "$ROOT"
+
+for ver in 1.56.3 1.56.10 2.0.0; do
+  run_test
+  ROOT="$(mktemp -d)"; setup_fixture "$ROOT"; add_denied_tools_judge "$ROOT"
+  echo "version = \"${ver}\"" > "${ROOT}/eval/.agent-eval-harness/pyproject.toml"
+  RC=0
+  OUT=$(run_rf "$ROOT" testagent EVAL_TIER=full STUB_CASE_RESULTS="001-release-case:0:3,002-full-only-case:0:3" 2>&1) || RC=$?
+  if [[ $RC -eq 0 ]] && ! echo "$OUT" | grep -q "denied_tools"; then
+    pass "judge denied_tools with harness ${ver} runs normally"
+  else
+    fail "judge denied_tools with harness ${ver} runs normally (rc=$RC, output: $OUT)"
+  fi
+  rm -rf "$ROOT"
+done
+
+for ver in unknown 1.56.3rc1 2.0; do
+  run_test
+  ROOT="$(mktemp -d)"; setup_fixture "$ROOT"; add_denied_tools_judge "$ROOT"
+  echo "version = \"${ver}\"" > "${ROOT}/eval/.agent-eval-harness/pyproject.toml"
+  RC=0
+  OUT=$(run_rf "$ROOT" testagent EVAL_TIER=full STUB_CASE_RESULTS="001-release-case:0:3,002-full-only-case:0:3" 2>&1) || RC=$?
+  if [[ $RC -eq 1 ]] && echo "$OUT" | grep -q "version '${ver}' .* is not a release version"; then
+    pass "judge denied_tools with harness version '${ver}' is refused as not a release version"
+  else
+    fail "judge denied_tools with harness version '${ver}' is refused as not a release version (rc=$RC, output: $OUT)"
+  fi
+  rm -rf "$ROOT"
+done
+
+run_test
+ROOT="$(mktemp -d)"; setup_fixture "$ROOT"
+echo 'version = "1.37.4"' > "${ROOT}/eval/.agent-eval-harness/pyproject.toml"
+RC=0
+OUT=$(run_rf "$ROOT" testagent EVAL_TIER=full STUB_CASE_RESULTS="001-release-case:0:3,002-full-only-case:0:3" 2>&1) || RC=$?
+if [[ $RC -eq 0 ]]; then
+  pass "an eval with no judge denied_tools runs on an older harness"
+else
+  fail "an eval with no judge denied_tools runs on an older harness (rc=$RC, output: $OUT)"
+fi
+rm -rf "$ROOT"
+
 run_test
 ROOT="$(mktemp -d)"; setup_fixture "$ROOT"
 RC=0

@@ -147,6 +147,12 @@ git submodule sync eval/.agent-eval-harness
 git submodule update --init eval/.agent-eval-harness
 ```
 
+An eval whose judges declare `agent.denied_tools` needs agent-eval-harness
+1.56.3 or later (the submodule pin): `run-functional.sh` reads the version
+from the checkout's `pyproject.toml` and refuses to run unless it is a plain
+release version (`N.N.N`) at or above 1.56.3, since earlier releases accept
+the key and ignore it; prereleases and placeholders are refused too.
+
 ### GCP credentials
 
 A GCP service account with Vertex AI access is required for model

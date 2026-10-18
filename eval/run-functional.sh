@@ -202,6 +202,31 @@ for script in "$WORKSPACE_PY" "$EXECUTE_PY" "$SCORE_PY"; do
   fi
 done
 
+# Agent judges that declare denied_tools rely on the harness passing a deny
+# list to the Claude Code runner, which agent-eval-harness does from 1.56.3
+# (opendatahub-io/agent-eval-harness#240). Older releases accept the key and
+# ignore it, so the judge would run with shell and network tools while reading
+# agent-written text. Refuse rather than score unconfined.
+if yq -e '[.judges[] | select(.agent.denied_tools)] | length > 0' "$EVAL_YAML_SRC" >/dev/null 2>&1; then
+  harness_min="1.56.3"
+  harness_ver="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${HARNESS_DIR}/pyproject.toml" 2>/dev/null | head -1 || true)"
+  if [[ -z "$harness_ver" ]]; then
+    echo "ERROR: cannot read the agent-eval-harness version from ${HARNESS_DIR}/pyproject.toml" >&2
+    exit 1
+  fi
+  # sort -V orders any string, so a prerelease or a placeholder could pass;
+  # insist on a plain release version before comparing.
+  if [[ ! "$harness_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: agent-eval-harness version '${harness_ver}' at ${HARNESS_DIR} is not a release version; ${harness_min} or later is required" >&2
+    exit 1
+  fi
+  if [[ "$(printf '%s\n%s\n' "$harness_min" "$harness_ver" | sort -V | head -1)" != "$harness_min" ]]; then
+    echo "ERROR: agent-eval-harness ${harness_ver} at ${HARNESS_DIR} ignores judge denied_tools; ${harness_min} or later is required" >&2
+    echo "       Update the submodule (git submodule update --init eval/.agent-eval-harness) or point AGENT_EVAL_HARNESS_DIR at a newer checkout" >&2
+    exit 1
+  fi
+fi
+
 export GH_TOKEN="${GH_TOKEN:-$(gh auth token)}"
 
 # Default FULLSEND_DIR to the repo root (the agents repo IS the scaffold).
