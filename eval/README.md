@@ -37,8 +37,10 @@ Results are written to `eval/runs/<agent>/<run-id>/`.
 Both tiers gate on the same things: a non-zero case exit (including a
 sandbox, provider or harness that would not load), a case whose
 `after_each` hook left `output/infrastructure-failure.json` (the hook could
-not establish what the agent did; the file carries `reason`, `hook` and
-`at`), and the deterministic contract judges `pr_created`, `new_commit`
+not establish what the agent did, or established it but could not finish the
+judge's artifacts, in which case the outcome is kept and marked
+`artifacts_incomplete`; the file carries `reason`, `hook` and `at`), and the
+deterministic contract judges `pr_created`, `new_commit`
 and `sandbox_started`. The other judges run and are reported, but don't
 fail the run:
 
@@ -169,7 +171,6 @@ calls during both execution and scoring.
 |----------|-------------|
 | `GH_TOKEN` | GitHub PAT used by all eval scripts. See [required scopes](#required-token-scopes) below. Falls back to `gh auth token` if unset. In GitHub Actions, this is populated from the `EVAL_GH_TOKEN` repository secret. |
 | `EVAL_ORG` | GitHub org or user where ephemeral repos are created (e.g. `my-test-org`). |
-| `EVAL_REPO_VISIBILITY` | Visibility of the ephemeral repos `setup-fixture.sh` creates: `private` (default since 2026-09-25; Dependabot opened PRs on public throwaway repos) or `public`. The CI evals use the default. |
 
 ### Optional
 
@@ -177,6 +178,7 @@ calls during both execution and scoring.
 |----------|-------------|
 | `FULLSEND_DIR` | Path to the fullsend scaffold directory. Defaults to the repo root. |
 | `EVAL_TIMEOUT` | Runner timeout in seconds. Defaults to `1800` (30 min). |
+| `EVAL_REPO_VISIBILITY` | Visibility of the ephemeral repos `setup-fixture.sh` creates: `private` (default since 2026-09-25; Dependabot opened PRs on public throwaway repos) or `public`. The CI evals use the default. |
 | `EVAL_RUNTIME` | Run every case under this runtime (`claude` or `pi`) via `fullsend run --runtime`, instead of the workspace config. |
 | `EVAL_MODEL` | Model override for every case (alias, id or `provider/id`, e.g. `google-vertex/gemini-2.5-flash`) via `fullsend run --model`. |
 | `EVAL_EFFORT` | Effort override via `fullsend run --effort`. |
