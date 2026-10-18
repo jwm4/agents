@@ -15,7 +15,9 @@
 #                        run-functional.sh counts as a case failure (the hook's
 #                        own exit code is swallowed by the harness's
 #                        continue-on-failure hook mode). A failure after the
-#                        outcome is known keeps the outcome, adds
+#                        outcome is known (anything the ERR trap catches, a
+#                        PR head that would not clone, a test sandbox that
+#                        would not start) keeps the outcome, adds
 #                        "artifacts_incomplete": true and writes the same
 #                        marker; the judges that read judge/ skip or error on
 #                        it instead of grading the gap.
@@ -81,15 +83,22 @@ write_outcome() { # outcome reason [infrastructure:true|false]
   # nothing behind it).
   trap 'on_artifact_err "$LINENO" "$?"' ERR
 }
-on_artifact_err() { # line exit-code
-  local why="capture hook aborted after the outcome at line $1 (exit $2): judge artifacts incomplete"
-  write_marker "$why"
+artifacts_incomplete() { # reason: a failure after the outcome is known
+  # The one place that records such a failure, whether the ERR trap found it
+  # or a path below named it (a PR head that would not clone, a test sandbox
+  # that would not start): the marker run-functional.sh counts, plus the flag
+  # on the outcome file, so neither the missing checkout nor the missing test
+  # result is graded as the agent's doing.
+  write_marker "$1"
   if command -v jq >/dev/null && [[ -f "$OUTPUT_DIR/agent-outcome.json" ]]; then
-    jq -c --arg r "$why" '. + {artifacts_incomplete: true, artifacts_incomplete_reason: $r}' \
+    jq -c --arg r "$1" '. + {artifacts_incomplete: true, artifacts_incomplete_reason: $r}' \
       "$OUTPUT_DIR/agent-outcome.json" > "$OUTPUT_DIR/agent-outcome.json.tmp" \
       && mv "$OUTPUT_DIR/agent-outcome.json.tmp" "$OUTPUT_DIR/agent-outcome.json"
   fi
-  echo "outcome kept; $why" >&2
+  echo "outcome kept; $1" >&2
+}
+on_artifact_err() { # line exit-code
+  artifacts_incomplete "capture hook aborted after the outcome at line $1 (exit $2): judge artifacts incomplete"
 }
 # Anything that exits this script before an outcome is recorded is a capture
 # failure (a fixture record jq cannot parse, a gh call that errored). set -e
@@ -269,7 +278,10 @@ if ! git -c "credential.helper=${GH_CRED_HELPER}" clone --quiet --branch "$head_
      "https://x-access-token@github.com/${EPHEMERAL_REPO}.git" "$WORK/pr"; then
   jq -n --arg c "$cmd" '{command: $c, exit_code: null, clone_failed: true}' > "$OUTPUT_DIR/regression.json"
   printf '# Repository tests\n\nCould not clone the PR head; tests not run.\n' > "$JUDGE_DIR/tests.md"
-  exit 0
+  # No checkout: no pr-head/ for the quality judge and no test result. A
+  # capture failure after the outcome, never a failing PR.
+  artifacts_incomplete "could not clone the PR head ${head_ref} of ${EPHEMERAL_REPO}: judge/pr-head/ and the test result are missing"
+  exit 1
 fi
 rsync -a --exclude .git --exclude .venv --exclude node_modules "$WORK/pr/" "$JUDGE_DIR/pr-head/"
 echo "Saved PR head checkout -> ${JUDGE_DIR}/pr-head/ ($(find "$JUDGE_DIR/pr-head" -type f | wc -l | tr -d ' ') files)"
@@ -306,3 +318,9 @@ jq -n --arg c "$cmd" --argjson rc "$rc" --argjson to "$timed_out" --argjson sf "
   echo; echo "Last 60 lines of output:"; echo; echo '```'; tail -60 "$OUTPUT_DIR/regression.log"; echo '```'
 } > "$JUDGE_DIR/tests.md"
 echo "Regression tests: exit $rc"
+if [[ "$sandbox_failed" == true ]]; then
+  # The sandbox failed, not the tests: the record above says so for a reader,
+  # and the marker keeps the judges from reading the gap as a failing PR.
+  artifacts_incomplete "the OpenShell sandbox for the regression tests could not be set up (output/regression.log): the test result is missing"
+  exit 1
+fi

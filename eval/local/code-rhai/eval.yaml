@@ -235,10 +235,13 @@ judges:
           return True, f"Not applicable: {r.get('reason')}"
       if r.get("skipped"):
           return True, f"Skipped: {r.get('reason')}"
+      # Both leave the marker checked above, so these do not normally run;
+      # they raise rather than fail so that no reading of this file can
+      # count a missing test result as the agent's tests failing.
       if r.get("clone_failed"):
-          return False, "Could not clone the PR head to run tests"
+          raise RuntimeError("capture failed, not the agent: could not clone the PR head to run tests")
       if r.get("sandbox_failed"):
-          return False, "Tests not run: the OpenShell sandbox could not be set up (see output/regression.log)"
+          raise RuntimeError("capture failed, not the agent: the OpenShell sandbox could not be set up (see output/regression.log)")
       code = r.get("exit_code")
       if code is None:
           return False, "No exit code recorded"

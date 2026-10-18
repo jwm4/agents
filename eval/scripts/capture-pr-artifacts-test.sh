@@ -4,9 +4,12 @@
 # to establish what the agent did also leaves output/infrastructure-failure.json
 # (the marker run-functional.sh counts as a case failure), including a
 # missing tool, a fixture record jq cannot parse, a failing gh call and a
-# malformed head ref. The PR path is exercised with a stub gh, git and
-# run-in-sandbox.sh, so the regression classification from the runner's
-# status file is checked too.
+# malformed head ref. Failures after the outcome is known (a judge artifact
+# that will not copy, a PR head that will not clone, a test sandbox that will
+# not start) keep the outcome, flag it artifacts_incomplete and leave the same
+# marker. The PR path is exercised with a stub gh, git and run-in-sandbox.sh,
+# so the regression classification from the runner's status file is checked
+# too.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +41,8 @@ STUB
 cat > "$TMP/bin/git" <<'STUB'
 #!/usr/bin/env bash
 # Only `git [-c ...] clone ... <url> <dir>` is expected: make the checkout.
+# STUB_GIT_RC non-zero makes the clone fail (an unreachable or deleted repo).
+[[ "${STUB_GIT_RC:-0}" != 0 ]] && { echo "stub git: clone failing on purpose" >&2; exit "$STUB_GIT_RC"; }
 for a in "$@"; do last="$a"; done
 mkdir -p "$last" && echo hello > "$last/a.txt"
 STUB
@@ -222,8 +227,27 @@ else
   fail "a decline whose repo snapshot cannot be staged is an infrastructure failure, not a decline (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
 fi
 
+WS=$(new_case pr-clone-fails "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_GIT_RC=128
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" \
+      && "$(marker "$WS")" == *"could not clone the PR head"* && "$(field "$WS/output/regression.json" .clone_failed)" == "true" \
+      && ! -d "$WS/judge/pr-head" && -f "$WS/judge/diff.patch" ]] && grep -q "Could not clone" "$WS/judge/tests.md"; then
+  pass "a PR head that will not clone keeps outcome pr, records clone_failed, flags artifacts_incomplete and leaves the marker"
+else
+  fail "a PR head that will not clone keeps outcome pr, flags artifacts_incomplete and leaves the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), regression=$(cat "$WS/output/regression.json" 2>/dev/null), out: $OUT)"
+fi
+
+WS=$(new_case pr-sandbox-fails "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_SANDBOX_STATUS=sandbox STUB_SANDBOX_RC=125
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" \
+      && "$(marker "$WS")" == *"sandbox for the regression tests could not be set up"* \
+      && "$(field "$WS/output/regression.json" .sandbox_failed)" == "true" && "$(field "$WS/output/regression.json" .exit_code)" == "125" \
+      && -f "$WS/judge/pr-head/a.txt" && ! -e "$WS/output/regression.log.status" ]] && grep -q "Result: NOT RUN" "$WS/judge/tests.md"; then
+  pass "a test sandbox that will not start keeps outcome pr, records sandbox_failed, flags artifacts_incomplete and leaves the marker"
+else
+  fail "a test sandbox that will not start keeps outcome pr, flags artifacts_incomplete and leaves the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), regression=$(cat "$WS/output/regression.json" 2>/dev/null), tests.md: $(grep Result "$WS/judge/tests.md" 2>/dev/null), out: $OUT)"
+fi
+
 # --- the PR path and the regression classification ------------------------
-for spec in "command:0:PASSED (exit 0)" "command:3:FAILED (exit 3)" "command:125:FAILED (exit 125)" "timeout:124:TIMED OUT" "sandbox:125:NOT RUN"; do
+for spec in "command:0:PASSED (exit 0)" "command:3:FAILED (exit 3)" "command:125:FAILED (exit 125)" "timeout:124:TIMED OUT"; do
   IFS=: read -r status rc_in expect <<< "$spec"
   WS=$(new_case "pr-$status-$rc_in" "$PR_STATE")
   run_hook "$WS" "$TMP/path-all" STUB_SANDBOX_STATUS="$status" STUB_SANDBOX_RC="$rc_in"
