@@ -35,9 +35,14 @@ Results are written to `eval/runs/<agent>/<run-id>/`.
   script prints a notice and exits 0.
 
 Both tiers gate on the same things: a non-zero case exit (including a
-sandbox, provider or harness that would not load) and the deterministic
-contract judges `pr_created`, `new_commit` and `sandbox_started`. The
-other judges run and are reported, but don't fail the run:
+sandbox, provider or harness that would not load), a case whose
+`after_each` hook left `output/infrastructure-failure.json` (the hook could
+not establish what the agent did, or established it but could not finish the
+judge's artifacts, in which case the outcome is kept and marked
+`artifacts_incomplete`; the file carries `reason`, `hook` and `at`), and the
+deterministic contract judges `pr_created`, `new_commit`
+and `sandbox_started`. The other judges run and are reported, but don't
+fail the run:
 
 - LLM quality judges (name ends in `_quality`, e.g. `review_quality`,
   `triage_quality`)

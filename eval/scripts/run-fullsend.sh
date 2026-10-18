@@ -22,6 +22,13 @@ set -euo pipefail
 AGENT="${1:?agent name required}"
 # $2 is the workspace path (passed by harness, unused here)
 OUTPUT_DIR="${3:?output dir required}"
+# Optional $4/$5: the harness's {model} and {effort} placeholders. An eval that
+# puts them in runner.command (eval/local/code-rhai) gets per-run model/effort from
+# `execute.py --model/--effort`, which run-functional.sh forwards from EVAL_MODEL/EVAL_EFFORT.
+# Non-empty values win over the EVAL_MODEL/EVAL_EFFORT environment; evals that
+# omit the placeholders (eval/code) keep the environment-only behaviour.
+if [[ -n "${4:-}" ]]; then EVAL_MODEL="$4"; fi
+if [[ -n "${5:-}" ]]; then EVAL_EFFORT="$5"; fi
 
 FULLSEND_DIR="$(cd "${FULLSEND_DIR:?FULLSEND_DIR is required}" && pwd)"
 FIXTURE_URL="${FIXTURE_URL:?FIXTURE_URL is required (set by before_each hook)}"
@@ -261,6 +268,20 @@ printf '%s\n' "$PRE_AGENT_HEAD" > "${OUTPUT_DIR}/pre-agent-head.txt"
 # run-functional.sh) become explicit fullsend run flags so the choice shows
 # up in the run plan, metrics.json (requested_*) and the logs.
 override_args=()
+# EVAL_NO_POST_SCRIPT=1 runs the agent but skips its post-script: the agent's
+# structured result stays under OUTPUT_DIR and nothing is pushed or posted.
+# Used by eval/local/code-rhai's run-review-agent.sh, which reads the review
+# agent's findings from disk instead of letting it post a review (posting
+# would also hit GitHub's self-review 422, since one token opens the PR and
+# would review it).
+[[ "${EVAL_NO_POST_SCRIPT:-}" == "1" ]] && override_args+=(--no-post-script)
+# Runtime follows the model when not set explicitly: a provider-prefixed id
+# (openai/gpt-6-luna, google-vertex/gemini-..., xai/grok-...) is a pi model,
+# since the Claude Code runtime only serves Anthropic models; a bare Anthropic
+# id keeps fullsend's default (claude). Lets one eval's arms mix vendors.
+if [[ -z "${EVAL_RUNTIME:-}" && "${EVAL_MODEL:-}" == */* ]]; then
+  EVAL_RUNTIME=pi
+fi
 [[ -n "${EVAL_RUNTIME:-}" ]] && override_args+=(--runtime "$EVAL_RUNTIME")
 [[ -n "${EVAL_MODEL:-}" ]] && override_args+=(--model "$EVAL_MODEL")
 [[ -n "${EVAL_EFFORT:-}" ]] && override_args+=(--effort "$EVAL_EFFORT")
@@ -283,6 +304,21 @@ timeout "$EVAL_TIMEOUT" fullsend run "$AGENT" \
 
 if [[ $rc -ne 0 ]]; then
   echo "WARNING: fullsend run exited with status $rc" >&2
+fi
+# Record how the run ended, so capture-pr-artifacts.sh can tell a clean stop
+# (a decline) from a run that timed out or crashed without opening a PR.
+# 124 is `timeout` expiring; fullsend's own iteration timeout surfaces as a
+# non-zero status from the post-script.
+# Written whole or not at all (a half-written or empty file would read as a
+# crashed run), and loudly when it fails, since a missing file turns every
+# clean stop into "failed" downstream.
+if jq -n --argjson rc "$rc" --arg agent "$AGENT" --arg t "$EVAL_TIMEOUT" \
+     '{agent: $agent, exit_code: $rc, timed_out: ($rc == 124), eval_timeout_s: ($t|tonumber? // $t)}' \
+     > "$OUTPUT_DIR/run-status.json.tmp"; then
+  mv "$OUTPUT_DIR/run-status.json.tmp" "$OUTPUT_DIR/run-status.json"
+else
+  rm -f "$OUTPUT_DIR/run-status.json.tmp"
+  echo "WARNING: could not write $OUTPUT_DIR/run-status.json; a no-PR run will be classed as failed, not declined" >&2
 fi
 
 # Remove env file to prevent secrets from being uploaded as artifacts
