@@ -69,8 +69,11 @@ hooks:
       timeout: 120
       description: "Capture issue + PR state for judges"
     - command: "capture-pr-artifacts.sh"
-      # test_timeout_s (up to 2400) plus sandbox creation, upload and teardown.
-      timeout: 3000
+      # EVAL_SANDBOX_READY_TIMEOUT (900 s) plus test_timeout_s (up to 2400)
+      # plus the 60 s exec grace is 3360 s, before sandbox creation, upload
+      # and teardown. If this still runs out, the harness sends SIGTERM and
+      # the hook's TERM trap records a capture failure before it dies.
+      timeout: 3600
       on_failure: continue
       description: "Save the PR diff and write-up; run the repo's own tests on the PR head in a sandbox"
     - command: "run-review-agent.sh"
@@ -222,7 +225,13 @@ judges:
   - name: regression_tests_pass
     description: >
       The repository's own test command (annotations.regression_tests.command)
-      must pass on the agent's PR head. Pass-to-pass, no reference needed.
+      must pass on the agent's PR head. Pass-to-pass, no reference needed. A
+      missing test result (the PR head would not clone, or the OpenShell
+      sandbox never ran the command) is a capture failure: the judge raises
+      rather than scoring it, and output/infrastructure-failure.json is set.
+      A sandbox that stopped answering while the tests ran (sandbox_lost) is
+      scored as the tests not passing, since the suite on the PR head most
+      likely took it down.
     check: |
       import json
       if outputs["files"].get("output/infrastructure-failure.json"):
@@ -242,6 +251,8 @@ judges:
           raise RuntimeError("capture failed, not the agent: could not clone the PR head to run tests")
       if r.get("sandbox_failed"):
           raise RuntimeError("capture failed, not the agent: the OpenShell sandbox could not be set up (see output/regression.log)")
+      if r.get("sandbox_lost"):
+          return False, "The sandbox stopped answering while the tests ran (see output/regression.log): counted as the tests not passing"
       code = r.get("exit_code")
       if code is None:
           return False, "No exit code recorded"

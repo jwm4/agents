@@ -28,6 +28,7 @@ if [[ -n "$cmd" && "$cmd" != "TODO" ]]; then
   rc=0; "$(dirname "$0")/run-in-sandbox.sh" "$WORK" "$cmd" "$tmo" "$CASE_DIR/.check-regression.log" || rc=$?
   status=$(cat "$CASE_DIR/.check-regression.log.status" 2>/dev/null || echo sandbox); rm -f "$CASE_DIR/.check-regression.log.status"
   if [[ "$status" == sandbox ]]; then echo "BAD  3. could not run the sandbox (log: $CASE_DIR/.check-regression.log); nothing known about the command"; fail=1;
+  elif [[ "$status" == lost ]]; then echo "BAD  3. the sandbox stopped answering while the regression command ran (log: $CASE_DIR/.check-regression.log); the command may be killing it"; fail=1;
   elif [[ "$status" == timeout ]]; then echo "BAD  3. regression command timed out after ${tmo}s on the bare snapshot (log: $CASE_DIR/.check-regression.log)"; fail=1;
   elif [[ $rc -eq 0 ]]; then echo "OK   3. regression command passes on the bare snapshot (in the sandbox)"; rm -f "$CASE_DIR/.check-regression.log";
   else echo "BAD  3. regression command exit $rc on the bare snapshot (log: $CASE_DIR/.check-regression.log)"; fail=1; fi

@@ -23,8 +23,13 @@
 # timeout; 125 when the sandbox could not be created, loaded or reached (the
 # log file says why). Because a command can itself exit 124 or 125, the
 # classification is also written to <log-file>.status as one word: "command"
-# (exit code is the command's), "timeout" or "sandbox"; callers read that
-# file, not the exit code. The log file holds the command's combined output.
+# (exit code is the command's), "timeout", "sandbox" (the sandbox never ran
+# the command: a setup check, create, Ready wait or upload failed; exit 125)
+# or "lost" (the command started but the sandbox stopped answering before it
+# reported a status: a dropped relay, an eviction, an OOM kill of the whole
+# sandbox; exit 125). Callers read that file, not the exit code. "sandbox"
+# says nothing about the code under test; "lost" usually says something about
+# its test suite. The log file holds the command's combined output.
 set -uo pipefail
 DIR="${1:?usage: run-in-sandbox.sh <checkout-dir> <command> <timeout-s> <log-file>}"
 CMD="${2:?command}"; TMO="${3:?timeout-s}"; LOG="${4:?log-file}"
@@ -36,6 +41,7 @@ READY_TIMEOUT="${EVAL_SANDBOX_READY_TIMEOUT:-900}"
 # sandbox limit SIGKILLs them (odh-dashboard, 2026-10-14). Override with EVAL_SANDBOX_MEMORY.
 STATUS="$LOG.status"
 sandbox_fail() { echo "$1" | tee -a "$LOG" >&2; echo sandbox > "$STATUS"; exit 125; }
+sandbox_lost() { echo "$1" | tee -a "$LOG" >&2; echo lost > "$STATUS"; exit 125; }
 : > "$LOG"; echo sandbox > "$STATUS"   # until the command reports its own status
 # Both timeouts reach bash arithmetic below; accept whole seconds only. Reported
 # like every other setup failure, so the caller finds the reason in the log and
@@ -145,7 +151,7 @@ if [[ -n "$sentinel" && "$exec_rc" -ne 0 ]]; then
   # The wrapper exits 0 once it has printed its status, so a status line on
   # an exec that failed was printed by the command (PR-head test code) and
   # the wrapper never finished: not a result.
-  sandbox_fail "run-in-sandbox: a status line is present but openshell exec exited ${exec_rc} after ${elapsed}s; the sandbox did not finish cleanly"
+  sandbox_lost "run-in-sandbox: a status line is present but openshell exec exited ${exec_rc} after ${elapsed}s; the sandbox did not finish cleanly"
 fi
 if [[ -n "$sentinel" ]]; then
   rc="${sentinel#__EVAL_RC__=}"
@@ -153,4 +159,4 @@ if [[ -n "$sentinel" ]]; then
   echo command > "$STATUS"
   exit "$rc"
 fi
-sandbox_fail "run-in-sandbox: the sandbox did not return the command's status (openshell exec exit ${exec_rc} after ${elapsed}s)"
+sandbox_lost "run-in-sandbox: the sandbox did not return the command's status (openshell exec exit ${exec_rc} after ${elapsed}s)"

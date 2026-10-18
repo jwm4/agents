@@ -64,6 +64,9 @@ render_review() {
 skip() { jq -n --arg r "$1" '{review_ran: false, reason: $r}' > "$OUTPUT_DIR/review-result.json"; render_review; echo "review agent skipped: $1"; exit 0; }
 [[ "${EVAL_SKIP_REVIEW:-}" == "1" ]] && skip "EVAL_SKIP_REVIEW=1"
 [[ -f "$PR_JSON" ]] || skip "pr.json missing; capture-pr-artifacts.sh did not run"
+# A capture failure means the quality judge will not run, so a review would
+# cost an hour for a record nothing scores.
+[[ ! -f "$OUTPUT_DIR/infrastructure-failure.json" ]] || skip "capture failed ($(jq -r '.reason // "unknown"' "$OUTPUT_DIR/infrastructure-failure.json")); the quality judge will not run"
 [[ "$(jq -r '.pr_found // false' "$PR_JSON")" == "true" ]] || skip "no PR to review"
 num=$(jq -r .number "$PR_JSON"); url=$(jq -r .url "$PR_JSON")
 

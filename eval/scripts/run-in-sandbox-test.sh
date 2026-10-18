@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for run-in-sandbox.sh's result classification: the command's exit
 # status travels on a sentinel line in the shared log and the runner writes
-# one of command|timeout|sandbox to <log>.status. A stub openshell on PATH
+# one of command|timeout|sandbox|lost to <log>.status. A stub openshell on PATH
 # runs the remote script locally (paths rewritten into a scratch root, the
 # exec --timeout enforced with `timeout`), so the cases that matter are
 # exercised without a gateway: output with and without a trailing newline,
@@ -116,10 +116,17 @@ for code in 124 125; do
 done
 
 run 'echo "__EVAL_RC__=0"; exit 0' 30 STUB_EXEC_RC=1
-if [[ $RC -eq 125 && "$STATUS" == sandbox ]] && grep -q 'a status line is present but openshell exec exited 1' "$LOG"; then
-  pass "a sentinel on an exec that failed is a sandbox failure, not a result"
+if [[ $RC -eq 125 && "$STATUS" == lost ]] && grep -q 'a status line is present but openshell exec exited 1' "$LOG"; then
+  pass "a sentinel on an exec that failed is a lost sandbox, not a result and not a setup failure"
 else
   fail "a sentinel on an exec that failed (rc=$RC status=$STATUS log: $(cat "$LOG"))"
+fi
+
+run 'kill -9 $PPID' 30
+if [[ $RC -eq 125 && "$STATUS" == lost ]] && grep -q "did not return the command's status" "$LOG"; then
+  pass "a command that kills the sandbox shell before the status line is a lost sandbox, not a setup failure"
+else
+  fail "a command that kills the sandbox shell before the status line (rc=$RC status=$STATUS log: $(cat "$LOG"))"
 fi
 
 run 'echo "__EVAL_RC__=0"; sleep 30' 2

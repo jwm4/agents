@@ -189,6 +189,18 @@ else
 fi
 mv "$FS/.fullsend/config.yaml.away" "$FS/.fullsend/config.yaml"
 
+# --- a capture failure skips the review --------------------------------------
+WS=$(new_ws capture-failed)
+echo '{"reason": "could not clone the PR head", "hook": "capture-pr-artifacts.sh"}' > "$WS/output/infrastructure-failure.json"
+run_hook "$WS"
+if [[ $RC -eq 0 && "$(jq -r .review_ran "$WS/output/review-result.json")" == "false" \
+      && "$(jq -r .reason "$WS/output/review-result.json")" == *"capture failed (could not clone the PR head)"* \
+      && ! -d "$WS/output/review-run" ]] && grep -q "The review did not run" "$WS/judge/review.md"; then
+  pass "a case the capture hook marked as a capture failure is not reviewed, and the reason is recorded"
+else
+  fail "a case the capture hook marked as a capture failure is not reviewed (rc=$RC, result=$(cat "$WS/output/review-result.json" 2>/dev/null), out: $OUT)"
+fi
+
 echo ""
 echo "=== $TESTS tests, $FAILURES failures ==="
 [[ $FAILURES -eq 0 ]]

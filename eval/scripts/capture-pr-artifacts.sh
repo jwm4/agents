@@ -16,12 +16,21 @@
 #                        own exit code is swallowed by the harness's
 #                        continue-on-failure hook mode). A failure after the
 #                        outcome is known (anything the ERR trap catches, a
-#                        PR head that would not clone, a test sandbox that
-#                        would not start) keeps the outcome, adds
-#                        "artifacts_incomplete": true and writes the same
-#                        marker; the judges that read judge/ skip or error on
-#                        it instead of grading the gap.
-#     regression.json    {command, exit_code, timed_out, sandbox_failed, ...}
+#                        PR head that would not clone, a diff GitHub would not
+#                        return, a test sandbox that would not start, SIGTERM
+#                        from the harness at the hook timeout) keeps the
+#                        outcome, adds "artifacts_incomplete": true and writes
+#                        the same marker; the judges that read judge/ skip or
+#                        error on it instead of grading the gap. Whatever route
+#                        the script takes to its end, the EXIT trap checks that
+#                        the artifacts the recorded outcome needs exist and
+#                        writes the marker if not (on_exit, below).
+#     regression.json    {command, exit_code, timed_out, sandbox_failed,
+#                        sandbox_lost, ...}: sandbox_failed = the sandbox never
+#                        ran the command (a capture failure); sandbox_lost = it
+#                        stopped answering while the command ran (scored as the
+#                        tests not passing: the suite under test most likely
+#                        took it down)
 #     regression.log     raw test output (run inside a throwaway OpenShell
 #                        sandbox by run-in-sandbox.sh, never on this host)
 #
@@ -113,9 +122,66 @@ on_err() { # line exit-code
 }
 trap 'on_err "$LINENO" "$?"' ERR
 
+# ---- the check every route to the end passes through ------------------------
+# The handlers above name the reason when a path they know about fails. This
+# is the guarantee for the paths nobody named: whatever route the script took
+# to its end (a normal finish, an explicit exit, set -e, a trap, SIGTERM from
+# the harness at the hook timeout), the recorded outcome must be backed by the
+# artifacts the judges need for it, or the marker is written here.
+WORK=""
+missing_artifacts() { # prints what the recorded outcome lacks; nothing when complete
+  local outcome reg missing=()
+  [[ -f "$OUTPUT_DIR/agent-outcome.json" ]] || { echo "an outcome (agent-outcome.json was never written)"; return 0; }
+  outcome=$(jq -r '.outcome // "unreadable"' "$OUTPUT_DIR/agent-outcome.json" 2>/dev/null || echo unreadable)
+  case "$outcome" in
+    pr)
+      [[ -s "$OUTPUT_DIR/pr.json" ]] || missing+=("output/pr.json")
+      [[ "$(jq -r 'if .diff_captured == false then "no" else "yes" end' "$OUTPUT_DIR/pr.json" 2>/dev/null)" == "yes" ]] \
+        || missing+=("judge/diff.patch (gh pr diff failed)")
+      [[ -s "$JUDGE_DIR/pr.md" ]] || missing+=("judge/pr.md")
+      [[ -d "$JUDGE_DIR/pr-head" ]] || missing+=("judge/pr-head/")
+      [[ -s "$JUDGE_DIR/tests.md" ]] || missing+=("judge/tests.md")
+      reg="$OUTPUT_DIR/regression.json"
+      if [[ ! -s "$reg" ]]; then missing+=("output/regression.json")
+      elif [[ "$(jq -r '(.clone_failed == true) or (.sandbox_failed == true)' "$reg" 2>/dev/null)" != "false" ]]; then
+        missing+=("a test result (the PR head was not cloned, or the sandbox never ran the tests)")
+      fi ;;
+    declined) [[ -d "$JUDGE_DIR/repo-snapshot" ]] || missing+=("judge/repo-snapshot/") ;;
+    failed) ;;
+    *) missing+=("a readable outcome (agent-outcome.json says '$outcome')") ;;
+  esac
+  (( ${#missing[@]} == 0 )) || printf '%s' "${missing[*]}"
+}
+record_gap() { # reason: the marker, plus the outcome file's flag or, with no outcome yet, a failed one
+  if [[ -f "$OUTPUT_DIR/agent-outcome.json" ]]; then
+    artifacts_incomplete "$1"
+  else
+    write_marker "$1"
+    write_outcome failed "$1" true
+    echo "outcome: failed, infrastructure ($1)" >&2
+  fi
+}
+on_exit() { # the script's exit status
+  local rc="$1" missing
+  [[ -n "$WORK" ]] && rm -rf "$WORK"
+  if [[ ! -f "$OUTPUT_DIR/infrastructure-failure.json" ]]; then
+    missing=$(missing_artifacts)
+    [[ -z "$missing" ]] || record_gap "capture hook ended (exit $rc) without $missing"
+  fi
+  # A marker means the hook did not finish cleanly; its exit status says so too.
+  [[ ! -f "$OUTPUT_DIR/infrastructure-failure.json" || "$rc" != 0 ]] || rc=1
+  exit "$rc"
+}
+trap 'on_exit "$?"' EXIT
+on_term() { # the harness sends SIGTERM to the hook's process group at the hook timeout
+  record_gap "capture hook stopped by SIGTERM (the harness hook timeout, most likely) before it finished"
+  exit 143
+}
+trap on_term TERM INT HUP
+
 # A missing tool is a capture failure too, and must leave the same two files.
 missing=()
-for cmd in gh yq jq git timeout rsync openshell run-in-sandbox.sh; do
+for cmd in gh yq jq git timeout rsync openshell run-in-sandbox.sh extract-final-message.py python3; do
   command -v "$cmd" >/dev/null || missing+=("$cmd")
 done
 if (( ${#missing[@]} > 0 )); then
@@ -145,7 +211,10 @@ notes=$(yq -r '.judge_notes // ""' "$ANNOTATIONS")
 # understands the Claude Code, pi and codex transcript shapes).
 run_dir=$(find "$OUTPUT_DIR" -maxdepth 1 -type d -name 'fs-cod-*' | head -1)
 if [[ -n "$run_dir" ]]; then
-  final_msg=$(extract-final-message.py "$run_dir" 2>/dev/null || true)
+  # An extractor that fails (a traceback, an unreadable transcript) is a
+  # capture failure through the ERR trap, not "no final message": the script
+  # prints nothing and exits 0 when the transcript holds none.
+  final_msg=$(extract-final-message.py "$run_dir")
 fi
 {
   echo "# The agent's final message"; echo
@@ -213,6 +282,8 @@ no_pr() {
   exit 0
 }
 [[ -f "$STATE_FILE" ]] || infra_fail "fixture-state.json missing; capture-fixture.sh did not run"
+# The repo name reaches gh and a clone URL; run-fullsend.sh checks the same shape.
+[[ "$EPHEMERAL_REPO" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || infra_fail "unexpected EPHEMERAL_REPO: $EPHEMERAL_REPO"
 # capture-fixture.sh records an empty PR list when GitHub would not return one;
 # that is not "no PR", it is a capture failure.
 pr_err=$(jq -r '.pull_requests_error // empty' "$STATE_FILE")
@@ -256,6 +327,10 @@ if (( diff_rc != 0 )); then
   jq --argjson rc "$diff_rc" '. + {diff_captured: false, diff_exit_code: $rc}' "$OUTPUT_DIR/pr.json" > "$OUTPUT_DIR/pr.json.tmp" \
     && mv "$OUTPUT_DIR/pr.json.tmp" "$OUTPUT_DIR/pr.json"
   echo "WARNING: gh pr diff failed (exit $diff_rc); recorded in pr.json and diff.patch" >&2
+  # The diff is the quality judge's primary input, so a placeholder is a
+  # capture failure after the outcome. Recorded now; the tests below still run
+  # so the test result is on file for a reader.
+  artifacts_incomplete "gh pr diff exited ${diff_rc}: judge/diff.patch holds a placeholder, not the diff"
 fi
 rm -f "$JUDGE_DIR/diff.err"
 size=$(wc -c < "$JUDGE_DIR/diff.full" | tr -d ' ')
@@ -269,7 +344,7 @@ rm -f "$JUDGE_DIR/diff.full"
 echo "Saved PR #${num} metadata and diff (${size} bytes)"
 
 # Checkout of the PR head for the judge to read around the change.
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+WORK=$(mktemp -d)   # removed by on_exit
 # shellcheck disable=SC2016 # expanded by git at credential time, as in setup-fixture.sh
 GH_CRED_HELPER='!f(){ echo "password=${GH_TOKEN}"; };f'
 cmd=$(yq -r '.regression_tests.command // ""' "$ANNOTATIONS")
@@ -283,7 +358,9 @@ if ! git -c "credential.helper=${GH_CRED_HELPER}" clone --quiet --branch "$head_
   artifacts_incomplete "could not clone the PR head ${head_ref} of ${EPHEMERAL_REPO}: judge/pr-head/ and the test result are missing"
   exit 1
 fi
-rsync -a --exclude .git --exclude .venv --exclude node_modules "$WORK/pr/" "$JUDGE_DIR/pr-head/"
+# --safe-links: a symlink in the PR head that points outside the checkout is
+# dropped, not staged where the judge can read through it.
+rsync -a --safe-links --exclude .git --exclude .venv --exclude node_modules "$WORK/pr/" "$JUDGE_DIR/pr-head/"
 echo "Saved PR head checkout -> ${JUDGE_DIR}/pr-head/ ($(find "$JUDGE_DIR/pr-head" -type f | wc -l | tr -d ' ') files)"
 
 # Regression tests on the PR head, using the repo's own command from annotations.
@@ -301,17 +378,20 @@ rc=0
 run-in-sandbox.sh "$WORK/pr" "$cmd" "$tmo" "$OUTPUT_DIR/regression.log" || rc=$?
 # Classification comes from the runner's status file, not the exit code: a
 # test command can itself exit 124 or 125.
+# No status file means the runner never started: it writes "sandbox" first.
 status=$(cat "$OUTPUT_DIR/regression.log.status" 2>/dev/null || echo sandbox)
 timed_out=false; [[ "$status" == timeout ]] && timed_out=true
-sandbox_failed=false; [[ "$status" == sandbox ]] && sandbox_failed=true
+sandbox_failed=false; [[ "$status" == sandbox ]] && sandbox_failed=true   # never ran the command
+sandbox_lost=false; [[ "$status" == lost ]] && sandbox_lost=true          # stopped answering while it ran
 rm -f "$OUTPUT_DIR/regression.log.status"
-jq -n --arg c "$cmd" --argjson rc "$rc" --argjson to "$timed_out" --argjson sf "$sandbox_failed" --arg t "$tmo" \
-  '{command: $c, exit_code: $rc, timed_out: $to, sandbox_failed: $sf, timeout_s: ($t|tonumber? // $t), log: "output/regression.log"}' > "$OUTPUT_DIR/regression.json"
+jq -n --arg c "$cmd" --argjson rc "$rc" --argjson to "$timed_out" --argjson sf "$sandbox_failed" --argjson sl "$sandbox_lost" --arg t "$tmo" \
+  '{command: $c, exit_code: $rc, timed_out: $to, sandbox_failed: $sf, sandbox_lost: $sl, timeout_s: ($t|tonumber? // $t), log: "output/regression.log"}' > "$OUTPUT_DIR/regression.json"
 {
   echo "# Repository tests on the PR head"; echo
   echo "Command: $cmd"
   echo "Run inside a throwaway OpenShell sandbox built from the coding agent's image."
   if [[ "$sandbox_failed" == true ]]; then echo "Result: NOT RUN, the sandbox could not be set up (exit 125); this says nothing about the PR"
+  elif [[ "$sandbox_lost" == true ]]; then echo "Result: LOST, the sandbox stopped answering while the tests ran (exit 125); the test suite on the PR head most likely took it down (memory, a killed shell), so this counts as the tests not passing"
   elif [[ "$timed_out" == true ]]; then echo "Result: TIMED OUT after ${tmo}s"
   elif [[ $rc -eq 0 ]]; then echo "Result: PASSED (exit 0)"
   else echo "Result: FAILED (exit $rc)"; fi

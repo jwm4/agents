@@ -3,13 +3,15 @@
 # hook can end leaves output/agent-outcome.json, and every way it can fail
 # to establish what the agent did also leaves output/infrastructure-failure.json
 # (the marker run-functional.sh counts as a case failure), including a
-# missing tool, a fixture record jq cannot parse, a failing gh call and a
-# malformed head ref. Failures after the outcome is known (a judge artifact
-# that will not copy, a PR head that will not clone, a test sandbox that will
-# not start) keep the outcome, flag it artifacts_incomplete and leave the same
-# marker. The PR path is exercised with a stub gh, git and run-in-sandbox.sh,
-# so the regression classification from the runner's status file is checked
-# too.
+# missing tool, a fixture record jq cannot parse, a failing gh call, a failing
+# final-message extractor, a malformed head ref or repo name. Failures after
+# the outcome is known (a judge artifact that will not copy, a PR head that
+# will not clone, a diff GitHub would not return, a test sandbox that will not
+# start, SIGTERM from the harness at the hook timeout) keep the outcome, flag
+# it artifacts_incomplete and leave the same marker. The PR path is exercised
+# with a stub gh, git and run-in-sandbox.sh, so the regression classification
+# from the runner's status file is checked too, including a sandbox lost while
+# the tests ran, which is a scored result rather than a capture failure.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +36,8 @@ cat > "$TMP/bin/gh" <<'STUB'
 [[ "${STUB_GH_RC:-0}" != 0 ]] && exit "$STUB_GH_RC"
 case "$1 $2" in
   "pr view") printf '{"pr_found": true, "number": 7, "url": "https://x/pull/7", "title": "T", "body": "B", "head": "agent/7-x", "base": "main", "head_sha": "abc", "additions": 1, "deletions": 0, "files": ["a.txt"]}\n' ;;
-  "pr diff") printf 'diff --git a/a.txt b/a.txt\n+hello\n' ;;
+  "pr diff") [[ "${STUB_GH_DIFF_RC:-0}" != 0 ]] && { echo "stub gh: pr diff failing on purpose" >&2; exit "$STUB_GH_DIFF_RC"; }
+             printf 'diff --git a/a.txt b/a.txt\n+hello\n' ;;
   *) exit 0 ;;
 esac
 STUB
@@ -52,6 +55,11 @@ cat > "$TMP/bin/run-in-sandbox.sh" <<'STUB'
 # real runner does, from STUB_SANDBOX_STATUS (command|timeout|sandbox) and
 # STUB_SANDBOX_RC.
 echo "stub ran: $2" > "$4"
+# STUB_SANDBOX_NO_STATUS=1: die before writing the status file, as a runner
+# that never started would. STUB_SANDBOX_TERM=1: send the hook SIGTERM, as the
+# harness does to the whole process group at the hook timeout.
+[[ "${STUB_SANDBOX_NO_STATUS:-0}" == 1 ]] && exit 125
+[[ "${STUB_SANDBOX_TERM:-0}" == 1 ]] && { kill -TERM "$PPID"; exit 143; }
 echo "${STUB_SANDBOX_STATUS:-command}" > "$4.status"
 exit "${STUB_SANDBOX_RC:-0}"
 STUB
@@ -63,7 +71,8 @@ cat > "$TMP/bin/rsync" <<'STUB'
 exec "$(command -v -p rsync || echo /opt/homebrew/bin/rsync)" "$@"
 STUB
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/openshell"
-printf '#!/usr/bin/env bash\nprintf "%%s" "${STUB_FINAL_MSG:-}"\n' > "$TMP/bin/extract-final-message.py"
+# STUB_EXTRACT_RC non-zero: the extractor crashes (a traceback, an unreadable transcript).
+printf '#!/usr/bin/env bash\n[[ "${STUB_EXTRACT_RC:-0}" != 0 ]] && exit "$STUB_EXTRACT_RC"\nprintf "%%s" "${STUB_FINAL_MSG:-}"\n' > "$TMP/bin/extract-final-message.py"
 chmod +x "$TMP/bin/"*
 
 # A PATH of symlinks to every real tool, minus the named ones, so a "missing
@@ -246,8 +255,51 @@ else
   fail "a test sandbox that will not start keeps outcome pr, flags artifacts_incomplete and leaves the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), regression=$(cat "$WS/output/regression.json" 2>/dev/null), tests.md: $(grep Result "$WS/judge/tests.md" 2>/dev/null), out: $OUT)"
 fi
 
+WS=$(new_case extractor-fails '{"pull_requests":[]}'); mkdir -p "$WS/output/fs-cod-1"; touch "$WS/output/fs-cod-1/metrics.json"
+echo '{"exit_code": 0, "timed_out": false}' > "$WS/output/run-status.json"
+run_hook "$WS" "$TMP/path-all" STUB_EXTRACT_RC=1 STUB_FINAL_MSG="never read"
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "failed/true" && "$(marker "$WS")" == *"aborted at line"* ]]; then
+  pass "a final-message extractor that fails goes through the ERR trap to the marker, instead of reading as no message"
+else
+  fail "a final-message extractor that fails goes through the ERR trap to the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
+fi
+
+WS=$(new_case bad-repo "$PR_STATE"); run_hook "$WS" "$TMP/path-all" EPHEMERAL_REPO='o/r;evil'
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "failed/true" && "$(marker "$WS")" == *"unexpected EPHEMERAL_REPO"* ]]; then
+  pass "a malformed EPHEMERAL_REPO is an infrastructure failure before any gh call"
+else
+  fail "a malformed EPHEMERAL_REPO is an infrastructure failure before any gh call (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
+fi
+
+WS=$(new_case pr-diff-fails "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_GH_DIFF_RC=1
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" \
+      && "$(marker "$WS")" == *"gh pr diff exited 1"* && "$(field "$WS/output/pr.json" .diff_captured)" == "false" \
+      && "$(field "$WS/output/regression.json" .exit_code)" == "0" && -f "$WS/judge/pr-head/a.txt" ]] && grep -q "DIFF CAPTURE FAILED" "$WS/judge/diff.patch"; then
+  pass "a diff GitHub would not return keeps outcome pr, still runs the tests, flags artifacts_incomplete and leaves the marker"
+else
+  fail "a diff GitHub would not return keeps outcome pr, flags artifacts_incomplete and leaves the marker (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), pr.json=$(cat "$WS/output/pr.json" 2>/dev/null), out: $OUT)"
+fi
+
+WS=$(new_case pr-no-status "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_SANDBOX_NO_STATUS=1
+if [[ $RC -ne 0 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/regression.json" .sandbox_failed)" == "true" \
+      && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" && "$(marker "$WS")" == *"sandbox for the regression tests could not be set up"* ]]; then
+  pass "a runner that dies before writing its status file reads as a sandbox that never started: marker and artifacts_incomplete"
+else
+  fail "a runner that dies before writing its status file reads as a sandbox that never started (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), regression=$(cat "$WS/output/regression.json" 2>/dev/null), out: $OUT)"
+fi
+
+WS=$(new_case pr-sigterm "$PR_STATE"); run_hook "$WS" "$TMP/path-all" STUB_SANDBOX_TERM=1
+if [[ $RC -eq 143 && "$(outcome "$WS")" == "pr/false" && "$(field "$WS/output/agent-outcome.json" .artifacts_incomplete)" == "true" \
+      && "$(marker "$WS")" == *"SIGTERM"* && ! -f "$WS/output/regression.json" ]]; then
+  pass "SIGTERM during the tests (the harness hook timeout) leaves the marker and artifacts_incomplete before the hook dies"
+else
+  fail "SIGTERM during the tests leaves the marker and artifacts_incomplete before the hook dies (rc=$RC, outcome=$(outcome "$WS"), marker=$(marker "$WS"), out: $OUT)"
+fi
+
 # --- the PR path and the regression classification ------------------------
-for spec in "command:0:PASSED (exit 0)" "command:3:FAILED (exit 3)" "command:125:FAILED (exit 125)" "timeout:124:TIMED OUT"; do
+# "lost" is the runner's word for a sandbox that stopped answering while the
+# command ran: a scored result (the tests did not pass), not a capture failure.
+for spec in "command:0:PASSED (exit 0)" "command:3:FAILED (exit 3)" "command:125:FAILED (exit 125)" "timeout:124:TIMED OUT" "lost:125:LOST"; do
   IFS=: read -r status rc_in expect <<< "$spec"
   WS=$(new_case "pr-$status-$rc_in" "$PR_STATE")
   run_hook "$WS" "$TMP/path-all" STUB_SANDBOX_STATUS="$status" STUB_SANDBOX_RC="$rc_in"
@@ -255,7 +307,8 @@ for spec in "command:0:PASSED (exit 0)" "command:3:FAILED (exit 3)" "command:125
   if [[ $RC -eq 0 && "$(outcome "$WS")" == "pr/false" && ! -e "$WS/output/infrastructure-failure.json" \
         && "$(field "$reg" .exit_code)" == "$rc_in" \
         && "$(field "$reg" .timed_out)" == "$([[ $status == timeout ]] && echo true || echo false)" \
-        && "$(field "$reg" .sandbox_failed)" == "$([[ $status == sandbox ]] && echo true || echo false)" \
+        && "$(field "$reg" .sandbox_failed)" == "false" \
+        && "$(field "$reg" .sandbox_lost)" == "$([[ $status == lost ]] && echo true || echo false)" \
         && -f "$WS/judge/diff.patch" && -f "$WS/judge/pr-head/a.txt" ]] \
      && grep -q "Result: $expect" "$WS/judge/tests.md" && [[ ! -e "$WS/output/regression.log.status" ]]; then
     pass "PR with sandbox status '$status' exit $rc_in: outcome pr, tests.md says $expect, status file consumed"

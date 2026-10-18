@@ -41,10 +41,16 @@ is recorded as `failed` with
 `output/infrastructure-failure.json`, which `run-functional.sh` counts as a
 case failure in its result line and exit code (the hook's own exit code is
 swallowed by the harness's continue-on-failure hook mode). A capture failure
-after the outcome is known (the PR-head checkout or the test result could not
-be staged) keeps the outcome, marks it `artifacts_incomplete`, and leaves the
-same marker; the test and quality judges then skip or error rather than grade
-what is missing as the agent's doing.
+after the outcome is known (the PR-head checkout, the diff or the test result
+could not be staged, or the harness stopped the hook at its timeout) keeps the
+outcome, marks it `artifacts_incomplete`, and leaves the same marker; the test
+and quality judges then skip or error rather than grade what is missing as the
+agent's doing, and the review step is skipped. The hook checks this once more
+as it exits, whatever route took it there: a recorded outcome without the
+artifacts the judges need for it gets the marker. A sandbox that stops
+answering while the tests run is a different case: the test suite on the PR
+head most likely took it down, so it is recorded as `sandbox_lost` and scored
+as the tests not passing, not as a capture failure.
 
 1. Deterministic first: the outcome; a PR exists; the repository's own test
    command still passes on the PR head; budgets are reported.
