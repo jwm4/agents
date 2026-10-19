@@ -63,15 +63,14 @@ in the test output can derail the match or exhaust memory. The log itself is
 not capped on the host; a suite that fills the disk ends as a capture failure
 through the hook's provisional marker.
 
-Three shapes are policy rather than proof, and are stated in eval.yaml and
+Two shapes are policy rather than proof, and are stated in eval.yaml and
 eval/local/code-rhai/README.md: a status line together with a non-zero exec
 exit is "lost" (a command could print one status line and kill the wrapper
-shell to escape grading, so that shape cannot be trusted either way); a
-timed-out exec with no start line is "timeout" (openshell may buffer output,
-so the line's absence at the timeout is not evidence the command never ran);
-and a failed exec with no start line is "sandbox", which assumes the relay
-delivers the start line before a command's first action can take the whole
-sandbox down.
+shell to escape grading, so that shape cannot be trusted either way); and an
+exec with no start line is "sandbox" whether it failed or ran out the clock,
+which rests on the relay streaming the start line before a command's first
+action can take the whole sandbox down (output streaming was observed on a
+live gateway; the command cannot remove a line already in the host log).
 
 The one defence that depends on the gateway: a command that prints a status
 line and then kills the wrapper shell leaves exactly one status line, and is
@@ -406,6 +405,15 @@ printf '\\n__EVAL_RC__=%s\\n' "$cmd_rc"
         os.replace(tmp, self.log)
 
     def classify(self, exec_rc: int, elapsed: int, timed_out: bool) -> int:
+        start, statuses = self.scan_log()
+        # The start line comes first: openshell streams output (checked against
+        # a live gateway), so a run that ran out the clock without it never
+        # reached the command. The command cannot remove a line already in the
+        # host log, so this cannot be steered from inside the sandbox.
+        if start is None:
+            self.fail_sandbox("run-in-sandbox: the sandbox never ran the command (no start line; "
+                              f"openshell exec exit {exec_rc} after {elapsed}s"
+                              f"{', timed out' if timed_out else ''})")
         # A timeout outranks any status line: the wrapper prints its line and
         # exits at once, so a status line followed by a run that hit the limit
         # was printed by the command itself.
@@ -413,10 +421,6 @@ printf '\\n__EVAL_RC__=%s\\n' "$cmd_rc"
             self.note(f"run-in-sandbox: command timed out after {self.timeout_s}s")
             self.write_status("timeout")
             return EXIT_TIMEOUT
-        start, statuses = self.scan_log()
-        if start is None:
-            self.fail_sandbox("run-in-sandbox: the sandbox never ran the command (no start line; "
-                              f"openshell exec exit {exec_rc} after {elapsed}s)")
         if len(statuses) > 1:
             self.fail_lost(f"run-in-sandbox: {len(statuses)} status lines in the log where the "
                            "wrapper prints one; the command printed the others (left in the log), "

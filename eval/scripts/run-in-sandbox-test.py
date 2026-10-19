@@ -9,7 +9,8 @@ newline, status-like text in the output, a command that itself exits 124 or
 125, a forged status line followed by a hang, a backgrounded writer that adds
 a status line after the wrapper's, a CRLF status line from the command, a NUL
 byte in the output, a large log, a command that kills the wrapper shell, an
-exec that never runs the wrapper, an exec that outlives the host-side grace,
+exec that never runs the wrapper, a relay that hangs through the timeout, an
+exec that outlives the host-side grace,
 every preflight failure, a failed archive, upload or create, a sandbox that
 never becomes Ready, a missing provider, a non-numeric timeout, and one or two
 SIGTERMs while the command runs.
@@ -61,6 +62,8 @@ case "$1 $2" in
     [[ "${STUB_EXEC_IGNORE_TERM:-0}" == 1 ]] && trap '' TERM
     # STUB_EXEC_NOSCRIPT: the exec never reaches the sandbox (relay error).
     [[ "${STUB_EXEC_NOSCRIPT:-0}" == 1 ]] && { echo "stub openshell: relay error" >&2; exit 1; }
+    # STUB_EXEC_HANG: the relay hangs without ever running the wrapper.
+    [[ "${STUB_EXEC_HANG:-0}" == 1 ]] && { sleep 30; exit 1; }
     # The remote script addresses the sandbox's own paths; point them at the
     # scratch root. Everything else it needs (sh, bash, tar, printf) is on the
     # PATH it exports.
@@ -226,6 +229,15 @@ class TestSandboxRunner(unittest.TestCase):
         self.assertIn(b"__EVAL_RC__=0\n", log,
                       "a forged status line followed by a hang stays in the log")
         self.assertIn(b"timed out after 2s", log)
+
+    def test_relay_that_hangs_through_the_timeout_is_a_capture_failure(self):
+        # No start line ever reached the log, so the command never ran; the
+        # clock running out does not make that the agent's timeout.
+        rc, status, log, _ = self.run_runner("echo ok", timeout="1", STUB_EXEC_HANG=1,
+                                             EVAL_SANDBOX_EXEC_GRACE=1)
+        self.assertEqual((rc, status), (125, "sandbox"))
+        self.assertIn(b"never ran the command (no start line", log)
+        self.assertIn(b"timed out", log)
 
     def test_exec_outliving_the_host_grace_is_a_timeout(self):
         # The gateway did not enforce --timeout; the host deadline (timeout

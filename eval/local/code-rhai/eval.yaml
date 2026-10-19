@@ -250,12 +250,12 @@ judges:
       that did not exit cleanly (a command could print one status line and
       kill the wrapper shell to escape grading, so that shape is trusted
       neither as a result nor as a capture failure), or the status value is
-      not an exit code. A run that hits the test timeout with no start line
-      is scored as a timeout, not a capture failure, since openshell may
-      buffer output; a failed exec with no start line is a capture failure,
-      which assumes the relay delivers the start line before a command can
-      take the sandbox down. Policy, not proof; output/regression.log ends
-      with the runner's note saying which shape.
+      not an exit code. A run with no start line in its log, whether the
+      exec failed or ran out the test timeout, is a capture failure (the
+      command never started; openshell streams output, checked against a
+      live gateway, and a command cannot remove a line already in the host
+      log). Policy, not proof; output/regression.log ends with the runner's
+      note saying which shape.
     check: |
       import json
       if outputs["files"].get("output/infrastructure-failure.json"):

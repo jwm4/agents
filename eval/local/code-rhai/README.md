@@ -56,11 +56,10 @@ different case: the test suite on the PR head most likely took it down, so it
 is recorded as `sandbox_lost` and scored as the tests not passing, not as a
 capture failure. That is a policy, not a proof: a status line followed by a
 failed exec is also `sandbox_lost`, because a command could print one status
-line and kill the wrapper shell to escape grading; a run that hits the
-test timeout without a start line is scored as a timeout, not a capture
-failure, because openshell may buffer output; and a failed exec with no start
-line is a capture failure, which assumes the relay delivers the start line
-before a command's first action can take the sandbox down. Two shapes are
+line and kill the wrapper shell to escape grading; and a run with no start
+line, whether the exec failed or ran out the test timeout, is a capture
+failure, which rests on the relay streaming the start line (observed) before
+a command's first action can take the sandbox down. Two shapes are
 accepted gaps in
 the other direction: a PR head the host cannot check out, or one too large to
 archive, upload or extract into the sandbox, is recorded as a capture failure
@@ -305,9 +304,9 @@ How the runner knows what happened inside the sandbox: its wrapper prints a
 start line before the command and a status line with the exit code after it,
 and the test suite under test cannot forge either into a pass. The start line
 appears before the command runs, so a run that ends with no start line is one
-the sandbox never ran (`sandbox_failed`, a capture failure), unless it ran out
-the test timeout first: a timeout outranks the start line, since openshell
-may buffer output, so a relay that hung for the whole window is scored as a
+the sandbox never ran (`sandbox_failed`, a capture failure), even when it ran
+out the test timeout: openshell streams output, so a relay that hung for the
+whole window shows no start line and is a capture failure, not the agent's
 timeout. After the command the wrapper kills every process the command left
 behind (the command runs in its own session when the image has `setsid`;
 without `setsid` the kill is skipped and the one-status-line rule below is
