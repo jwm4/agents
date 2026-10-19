@@ -18,8 +18,8 @@ gh config, ~/.npmrc, ~/.ssh. So it runs where the coding agent itself ran:
               unreachable. fullsend creates that provider on the gateway for
               every coder run, so it exists wherever the coder has run once.
   - identity: the sandbox user, HOME=/sandbox, no host environment at all
-              (this rests on the openshell CLI not forwarding its own
-              environment into `sandbox exec`; the scripts do not strip it)
+              (the openshell CLI does not forward its own environment into
+              `sandbox exec`; checked against a live gateway, see below)
 
 Environment: EVAL_SANDBOX_HARNESS (default harness/code.yaml), EVAL_SANDBOX_PROVIDER
 (default package-registries), EVAL_SANDBOX_MEMORY (default 8Gi),
@@ -76,8 +76,14 @@ sandbox down.
 The one defence that depends on the gateway: a command that prints a status
 line and then kills the wrapper shell leaves exactly one status line, and is
 caught only because `openshell sandbox exec` exits non-zero when the remote
-shell dies by signal. The unit tests prove that shape with a local `sh`, not
-with openshell; it has not been recorded against a live gateway.
+shell dies by signal. Checked against a live gateway on 2026-10-18 (openshell
+0.1.4, the pinned fullsend-code image, /bin/sh is dash, setsid present): the
+exec exits 137 when the remote shell is killed, with or without a status line
+already printed; a clean `exit 3` comes back as 3; a writer that outlives the
+shell still lands in the log, so the straggler kill is needed; the client
+environment is not forwarded into the sandbox; and output streams, the first
+line visible within a second of being printed. The unit tests prove the same
+shapes with a local `sh`.
 
 Accepted gap: the checkout is archived on the host, uploaded and extracted in
 the sandbox before the start line, so a PR head large enough to break any of

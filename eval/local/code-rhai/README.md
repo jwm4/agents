@@ -318,7 +318,12 @@ extra lines are left in the log for a reader), a status line with an exec
 that did not exit cleanly, and a status value that is not an exit code. The
 log is read line by line as bytes, so neither its size nor a NUL in the test
 output can derail the match; the runner's own note at the end of
-`output/regression.log` names which shape it saw.
+`output/regression.log` names which shape it saw. These rules were checked
+against a live gateway on 2026-10-18: `openshell sandbox exec` exits 137 when
+the remote shell dies by signal (so a command that prints a status line and
+kills the shell is `sandbox_lost`), output streams as it is printed, a writer
+that outlives the shell still reaches the log, and the client environment is
+not forwarded into the sandbox.
 
 Memory during judging: `judge/` is a declared output so the agent judge can
 browse it, and the harness stages declared outputs by reading every file
